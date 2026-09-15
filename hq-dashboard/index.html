@@ -7,7 +7,8 @@
   <meta name="description" content="HQ dispatch for the ambulance-priority traffic light demo.">
   <title>Lifeline · HQ dispatch</title>
   <!--
-    No build step or dependencies. Serve this folder with:
+    No build step. Leaflet loads from unpkg; map tiles come from OpenStreetMap.
+    Serve this folder with:
       python -m http.server 8081
     Open http://localhost:8081 and run the FastAPI server separately on port 8000.
     Edit SERVER_URL at the top of the script before deploying.
@@ -120,6 +121,23 @@
     .light-panel .feedback[data-tone="success"] { color: #a7ecd3; }
     .driver-error { margin: 0; padding: 0 24px 16px; }
     .page-footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 24px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+    .map-canvas { height: 320px; width: 100%; border-radius: 10px; background: #dce6e3; position: relative; z-index: 0; color: #1c3135; }
+    .live-map-block { padding: 20px 24px; border-top: 1px solid #355056; }
+    .live-map-block h3 { margin: 0 0 8px; font-size: 14px; }
+    .live-map-block .map-canvas { height: 240px; }
+    .map-note { font-size: 12px; line-height: 1.6; margin: 10px 0; color: #b32928; }
+    .live-map-block .map-note { color: #ffb8b0; }
+    .map-tools { display: flex; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
+    .map-tools .button { flex: 1; }
+    .map-tools [aria-pressed="true"] { box-shadow: inset 0 0 0 2px currentColor; }
+    #set-pickup { color: #b42332; }
+    #set-hospital { color: #175ca8; }
+    .stop-coordinate { font: 12px/1.7 var(--mono); margin: 4px 0 14px; overflow-wrap: anywhere; }
+    .map-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 0; font-size: 11px; line-height: 1.5; }
+    .map-key { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; background: #64748b; }
+    .pickup-key { background: #dc3545; } .hospital-key { background: #2563eb; }
+    .ambulance-map-marker { background: #1d4ed8; color: white; border: 2px solid white; border-radius: 7px; display: grid; place-items: center; font-size: 21px; box-shadow: 0 1px 5px #0006; }
+    .map-canvas .leaflet-control-attribution { font-size: 10px; }
     noscript p { padding: 15px; background: #fff0d2; color: #784800; }
     @media (max-width: 980px) {
       .dashboard { grid-template-columns: minmax(0, 1fr) minmax(310px, .9fr); gap: 16px; }
@@ -170,6 +188,14 @@
           <p class="feedback" id="light-error" role="status" hidden></p>
         </div>
         <div class="light-setup"><div class="setup-row"><p class="setup-hint">Setting up the demo?<br>Stand next to the physical light.</p><button class="button button-light" id="place-light" type="button">Set traffic light to my location</button></div><p class="feedback" id="placement-feedback" role="status" hidden></p><p class="feedback" id="light-geo-note" hidden></p></div>
+        <section class="live-map-block" aria-labelledby="live-map-title">
+          <h3 id="live-map-title">Live positions</h3>
+          <p class="setup-hint" id="live-driver-note">Tracking the driver in the Driver ID field.</p>
+          <div class="map-legend"><span>✚ Ambulance</span><span><i class="map-key" aria-hidden="true"></i>Traffic light · color follows state</span></div>
+          <div class="map-canvas" id="live-map" aria-label="Live ambulance and traffic light map"></div>
+          <p class="map-note" id="live-map-note" role="status">Loading map…</p>
+          <button class="button button-light" id="fit-live-map" type="button">Show both positions</button>
+        </section>
       </section>
 
       <section class="panel assign-panel" aria-labelledby="assign-title">
@@ -178,18 +204,22 @@
           <fieldset id="assignment-fields">
             <label for="driver-id">Driver ID</label><input id="driver-id" name="driver_id" type="text" value="ambulance-1" required maxlength="128" pattern="[A-Za-z0-9_\-]+" title="Use letters, numbers, underscores, or hyphens." autocomplete="off" spellcheck="false" aria-describedby="driver-help">
             <p class="field-help" id="driver-help">Use the ID shown in the driver's phone app.</p>
-            <div class="stop-fields"><h3 class="stop-title"><span class="step" aria-hidden="true">01</span>Pickup location</h3>
-              <fieldset id="pickup-fields" aria-label="Pickup coordinates"><div class="field-pair">
-                <div><label for="pickup-lat">Latitude</label><input id="pickup-lat" name="pickup_lat" type="number" min="-90" max="90" step="any" placeholder="−90 to 90" required></div>
-                <div><label for="pickup-lon">Longitude</label><input id="pickup-lon" name="pickup_lon" type="number" min="-180" max="180" step="any" placeholder="−180 to 180" required></div>
-              </div></fieldset>
-              <button class="button location-shortcut" id="use-pickup" type="button"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="6"/><circle cx="10" cy="10" r="2"/><path d="M10 0v4m0 12v4M0 10h4m12 0h4"/></svg>Use my current location as pickup</button>
+            <div class="stop-fields">
+              <h3 class="stop-title">Choose emergency stops</h3>
+              <p class="field-help">Pan or zoom to your area, choose a stop, then click the map. Starts in New Delhi.</p>
+              <div class="map-tools" role="group" aria-label="Stop to place on the map">
+                <button class="button" id="set-pickup" type="button" aria-pressed="true">Set pickup</button>
+                <button class="button" id="set-hospital" type="button" aria-pressed="false">Set hospital</button>
+              </div>
+              <p class="field-help" id="map-selection-hint" role="status">Click the map to set the pickup.</p>
+              <div class="map-canvas" id="assignment-map" aria-label="Click to choose pickup or hospital"></div>
+              <p class="map-note" id="assignment-map-note" role="status">Loading map…</p>
+              <div class="map-legend"><span><i class="map-key pickup-key" aria-hidden="true"></i>Pickup</span><span><i class="map-key hospital-key" aria-hidden="true"></i>Hospital</span></div>
+              <p class="stop-coordinate" id="pickup-coordinates" aria-live="polite">Pickup: not selected</p>
+              <p class="stop-coordinate" id="hospital-coordinates" aria-live="polite">Hospital: not selected</p>
+              <button class="button location-shortcut" id="use-pickup" type="button">Use my location for pickup</button>
               <p class="feedback" id="pickup-feedback" role="status" hidden></p><p class="feedback" id="pickup-geo-note" hidden></p>
             </div>
-            <div class="stop-fields"><h3 class="stop-title"><span class="step" aria-hidden="true">02</span>Hospital location</h3><div class="field-pair">
-              <div><label for="hospital-lat">Latitude</label><input id="hospital-lat" name="hospital_lat" type="number" min="-90" max="90" step="any" placeholder="−90 to 90" required></div>
-              <div><label for="hospital-lon">Longitude</label><input id="hospital-lon" name="hospital_lon" type="number" min="-180" max="180" step="any" placeholder="−180 to 180" required></div>
-            </div></div>
           </fieldset>
           <div class="submit-section"><button class="button primary" id="send-assignment" type="submit">Send emergency assignment <span aria-hidden="true">→</span></button><p class="submit-note">Creates or replaces this driver's current assignment.</p><p class="feedback" id="assignment-feedback" role="status" hidden></p></div>
         </form>
@@ -225,6 +255,154 @@
     let lastLight = null;
     let placementTimer = null;
     let pageActive = true;
+    let assignmentMap = null;
+    let liveMap = null;
+    let selectedStop = "pickup";
+    let pickupLocation = null;
+    let hospitalLocation = null;
+    let liveDrivers = [];
+    let liveDriverId = "";
+    let liveMarkerKeys = "";
+
+    // Optional maps load independently of the application's request/GPS startup.
+    function loadMapLibrary() {
+      const loadAsset = (tag, url) => new Promise((resolve, reject) => {
+        const element = document.createElement(tag);
+        const timeout = setTimeout(() => reject(new Error("Map library timed out")), 10000);
+        element.onload = () => { clearTimeout(timeout); resolve(); };
+        element.onerror = () => { clearTimeout(timeout); reject(new Error("Map library unavailable")); };
+        if (tag === "link") { element.rel = "stylesheet"; element.href = url; }
+        else { element.src = url; element.async = true; }
+        document.head.append(element);
+      });
+      return Promise.all([
+        loadAsset("link", "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"),
+        loadAsset("script", "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js")
+      ]);
+    }
+
+    function createDemoMap(elementId, noteId) {
+      const note = document.getElementById(noteId);
+      const instance = { map: null, markers: new Map(), ready: false };
+      const fail = () => {
+        instance.ready = false;
+        note.textContent = "Map unavailable. Check your internet connection or reload the page.";
+        note.hidden = false;
+      };
+      instance.safe = (action) => { try { return action(); } catch (error) { fail(); } };
+      instance.safe(() => {
+        instance.map = L.map(elementId, { scrollWheelZoom: false }).setView([28.6139, 77.2090], 13);
+        let tileErrors = 0;
+        const tileTimeout = setTimeout(() => { if (!instance.ready) fail(); }, 12000);
+        // Standard OSM tiles with visible attribution; no prefetching or cache bypass.
+        const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        });
+        tiles.on("loading", () => { tileErrors = 0; instance.ready = false; });
+        tiles.on("tileerror", () => { tileErrors++; fail(); });
+        tiles.on("load", () => {
+          clearTimeout(tileTimeout);
+          instance.ready = tileErrors === 0;
+          if (instance.ready) { note.hidden = true; note.textContent = ""; }
+          else fail();
+        });
+        tiles.addTo(instance.map);
+      });
+      if (!instance.map) return null;
+      instance.marker = (key, coordinates, color, label, ambulance = false) => instance.safe(() => {
+        let marker = instance.markers.get(key);
+        if (!coordinates) {
+          if (marker) instance.map.removeLayer(marker);
+          instance.markers.delete(key);
+          return;
+        }
+        if (!marker) {
+          const tooltip = document.createElement("span");
+          tooltip.textContent = label;
+          marker = ambulance
+            ? L.marker(coordinates, { title: label, icon: L.divIcon({
+                className: "ambulance-map-marker", html: '<span aria-hidden="true">✚</span>',
+                iconSize: [28, 28], iconAnchor: [14, 14]
+              }) })
+            : L.circleMarker(coordinates, { radius: 9, color: "#ffffff", weight: 3, fillColor: color, fillOpacity: 1 });
+          marker.bindTooltip(tooltip).addTo(instance.map);
+          instance.markers.set(key, marker);
+        } else {
+          marker.setLatLng(coordinates);
+          if (!ambulance) marker.setStyle({ fillColor: color });
+          const tooltip = document.createElement("span");
+          tooltip.textContent = label;
+          marker.setTooltipContent(tooltip);
+        }
+      });
+      instance.fit = () => instance.safe(() => {
+        const points = [...instance.markers.values()].map(marker => marker.getLatLng());
+        if (points.length) instance.map.fitBounds(L.latLngBounds(points), { padding: [30, 30], maxZoom: 16, animate: false });
+      });
+      return instance;
+    }
+
+
+    function setStopMode(stop) {
+      selectedStop = stop;
+      $("set-pickup").setAttribute("aria-pressed", String(stop === "pickup"));
+      $("set-hospital").setAttribute("aria-pressed", String(stop === "hospital"));
+      $("map-selection-hint").textContent = `Click the map to set the ${stop}.`;
+    }
+
+    function selectStop(stop, location) {
+      if (stop === "pickup") pickupLocation = location;
+      else hospitalLocation = location;
+      $(`${stop}-coordinates`).textContent = `${stop === "pickup" ? "Pickup" : "Hospital"}: ${location.lat.toFixed(5)}, ${location.lon.toFixed(5)}`;
+      assignmentMap?.marker(stop, [location.lat, location.lon], stop === "pickup" ? "#dc3545" : "#2563eb", stop === "pickup" ? "Pickup" : "Hospital");
+      feedback("assignment-feedback", "");
+    }
+
+    function updateLiveMap(records = liveDrivers) {
+      liveDrivers = records;
+      const id = $("driver-id").value.trim();
+      const selected = records.find(record => record.driver_id === id);
+      const hasPosition = selected && validCoordinates(selected.current_lat, selected.current_lon);
+      $("live-driver-note").textContent = `${id || "No driver selected"} · ${hasPosition ? "last reported GPS" : "waiting for GPS"}`;
+      if (!liveMap) return;
+      liveMap.marker("driver", hasPosition ? [selected.current_lat, selected.current_lon] : null, "#1d4ed8", `Ambulance · ${id}`, true);
+      const placed = lastLight && validCoordinates(lastLight.lat, lastLight.lon);
+      liveMap.marker("light", placed ? [lastLight.lat, lastLight.lon] : null,
+        { idle: "#64748b", yellow_flash: "#f59e0b", green: "#16a34a" }[lastLight?.state] || "#64748b",
+        `Traffic light · ${lastLight?.state || "unknown"}`);
+      const keys = [...liveMap.markers.keys()].join(",");
+      if (id !== liveDriverId || keys !== liveMarkerKeys) liveMap.fit();
+      liveDriverId = id;
+      liveMarkerKeys = keys;
+    }
+
+    async function initializeMaps() {
+      try {
+        await loadMapLibrary();
+        assignmentMap = createDemoMap("assignment-map", "assignment-map-note");
+        liveMap = createDemoMap("live-map", "live-map-note");
+        assignmentMap?.safe(() => assignmentMap.map.on("click", event => {
+          if (assignmentBusy || pickupBusy) return;
+          if (!assignmentMap.ready) {
+            feedback("assignment-map-note", "Map unavailable or still loading. Wait for the map tiles before choosing a stop.");
+            return;
+          }
+          const point = event.latlng.wrap();
+          if (!validCoordinates(point.lat, point.lng)) return;
+          selectStop(selectedStop, { lat: point.lat, lon: point.lng });
+          feedback("pickup-feedback", "");
+        }));
+        if (pickupLocation) selectStop("pickup", pickupLocation);
+        if (hospitalLocation) selectStop("hospital", hospitalLocation);
+        if (pickupLocation || hospitalLocation) assignmentMap?.fit();
+        updateLiveMap();
+      } catch (error) {
+        feedback("assignment-map-note", "Map unavailable. Check your internet connection and reload the page.");
+        feedback("live-map-note", "Map unavailable. Status polling will continue.");
+      }
+      updateFormButtons();
+    }
 
     function feedback(id, text, tone = "error") {
       const node = $(id);
@@ -307,6 +485,7 @@
       $("drivers-empty").hidden = records.length > 0;
       $("drivers-empty").textContent = "No drivers yet. Send the first assignment to get started.";
       $("drivers-updated").textContent = `Last received ${formatTime()} · Coordinates are the last reported position.`;
+      updateLiveMap(records);
     }
 
     async function pollDrivers() {
@@ -339,6 +518,7 @@
       $("light-description").textContent = !placed ? "Place the traffic light to begin the demo." : light.state === "idle" ? "Standing by for an approaching ambulance." : light.state === "yellow_flash" ? "Ambulance approaching. Preparing the priority signal." : "Priority signal is green for the ambulance.";
       $("light-location").textContent = placed ? `${light.lat.toFixed(5)}, ${light.lon.toFixed(5)}` : "Not placed yet";
       $("light-changed").textContent = light.state_changed_at ? formatTime(light.state_changed_at) : "—";
+      updateLiveMap();
     }
 
     async function pollLight() {
@@ -359,8 +539,8 @@
     }
 
     function geoUnavailable() {
-      if (!window.isSecureContext) return "Location access requires HTTPS or localhost. You can still enter coordinates manually and monitor dispatch.";
-      if (!navigator.geolocation) return "This browser doesn't support location access. You can still enter coordinates manually and monitor dispatch.";
+      if (!window.isSecureContext) return "Location access requires HTTPS or localhost. You can still choose stops on the map and monitor dispatch.";
+      if (!navigator.geolocation) return "This browser doesn't support location access. You can still choose stops on the map and monitor dispatch.";
       return "";
     }
 
@@ -385,11 +565,12 @@
 
     function updateFormButtons() {
       $("assignment-fields").disabled = assignmentBusy;
-      $("pickup-fields").disabled = pickupBusy;
+      $("set-pickup").disabled = assignmentBusy || pickupBusy || !assignmentMap;
+      $("set-hospital").disabled = assignmentBusy || pickupBusy || !assignmentMap;
       $("send-assignment").disabled = assignmentBusy || pickupBusy;
       $("use-pickup").disabled = assignmentBusy || pickupBusy || Boolean(geoUnavailable());
       $("send-assignment").textContent = assignmentBusy ? "Sending assignment…" : "Send emergency assignment →";
-      $("use-pickup").textContent = pickupBusy ? "Finding your location…" : "Use my current location as pickup";
+      $("use-pickup").textContent = pickupBusy ? "Finding your location…" : "Use my location for pickup";
     }
 
     async function useCurrentPickup() {
@@ -399,8 +580,8 @@
       feedback("pickup-feedback", "");
       try {
         const location = await currentLocation();
-        $("pickup-lat").value = String(location.lat);
-        $("pickup-lon").value = String(location.lon);
+        selectStop("pickup", location);
+        assignmentMap?.safe(() => assignmentMap.map.setView([location.lat, location.lon], 16));
         feedback("assignment-feedback", "");
         feedback("pickup-feedback", "Pickup filled with your current location.", "success");
       } catch (error) { feedback("pickup-feedback", geoError(error)); }
@@ -410,14 +591,14 @@
     async function assignEmergency(event) {
       event.preventDefault();
       if (assignmentBusy || pickupBusy || !$("assignment-form").reportValidity()) return;
-      // Read before disabling the form. valueAsNumber avoids treating blanks as 0.
+      // Selected map coordinates retain their full precision in the API payload.
       const body = {
         driver_id: $("driver-id").value,
-        pickup_lat: $("pickup-lat").valueAsNumber, pickup_lon: $("pickup-lon").valueAsNumber,
-        hospital_lat: $("hospital-lat").valueAsNumber, hospital_lon: $("hospital-lon").valueAsNumber
+        pickup_lat: pickupLocation?.lat, pickup_lon: pickupLocation?.lon,
+        hospital_lat: hospitalLocation?.lat, hospital_lon: hospitalLocation?.lon
       };
       if (!validCoordinates(body.pickup_lat, body.pickup_lon) || !validCoordinates(body.hospital_lat, body.hospital_lon)) {
-        feedback("assignment-feedback", "Enter valid numeric coordinates: latitude −90 to 90, longitude −180 to 180.");
+        feedback("assignment-feedback", "Choose both a pickup and a hospital on the map before sending.");
         return;
       }
       assignmentBusy = true;
@@ -462,12 +643,16 @@
     $("place-light").addEventListener("click", placeTrafficLight);
     // Editing a location or assignment makes its previous success message obsolete.
     $("assignment-form").addEventListener("input", () => feedback("assignment-feedback", ""));
-    $("pickup-fields").addEventListener("input", () => feedback("pickup-feedback", ""));
+    $("set-pickup").addEventListener("click", () => setStopMode("pickup"));
+    $("set-hospital").addEventListener("click", () => setStopMode("hospital"));
+    $("driver-id").addEventListener("input", () => updateLiveMap());
+    $("fit-live-map").addEventListener("click", () => liveMap?.fit());
     const unavailable = geoUnavailable();
     feedback("pickup-geo-note", unavailable);
     feedback("light-geo-note", unavailable);
     $("place-light").disabled = Boolean(unavailable);
     updateFormButtons();
+    void initializeMaps();
     void pollDrivers();
     void pollLight();
     setInterval(() => void pollDrivers(), DRIVER_POLL_MS);

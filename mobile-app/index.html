@@ -8,7 +8,7 @@
   <meta name="description" content="Ambulance driver dispatch and location sharing.">
   <title>Lifeline · Driver</title>
   <!--
-    Standalone driver app. No dependencies or build step.
+    Standalone driver app. No build step; optional maps use Leaflet and OpenStreetMap.
     Serve this folder: python -m http.server 8080
     Open http://localhost:8080. Start the FastAPI server separately on port 8000.
     Before phone deployment, edit SERVER_URL below and host this page over HTTPS.
@@ -105,6 +105,14 @@
     .utility-heading .eyebrow { font-size: 10px; }
     .utility-hint { margin: 11px 6px 0; font-size: 12px; line-height: 1.6; text-align: center; color: var(--muted); }
     .footer-note { display: flex; justify-content: center; gap: 7px; margin: 26px 0 0; font-size: 10px; color: #8ea4a4; letter-spacing: 1.2px; text-transform: uppercase; }
+    .map-panel { margin-top: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #142126; }
+    .map-panel h2 { font-size: 14px; margin: 0 0 9px; }
+    .map-canvas { height: 210px; width: 100%; position: relative; z-index: 0; border-radius: 10px; background: #263b3e; color: #1c3135; }
+    .map-note, .map-legend { font-size: 12px; line-height: 1.6; color: var(--muted); margin: 9px 0; }
+    .map-note { color: var(--amber); }
+    .map-panel .button { margin-top: 10px; min-height: 56px; font-size: 14px; }
+    .ambulance-map-marker { background: #1d4ed8; color: white; border: 2px solid white; border-radius: 7px; display: grid; place-items: center; font-size: 21px; box-shadow: 0 1px 5px #0006; }
+    .map-canvas .leaflet-control-attribution { font-size: 9px; }
     noscript p { padding: 18px; background: #38291e; color: var(--amber); }
     @media (min-width: 600px) {
       body { background: radial-gradient(ellipse at 50% 20%, #1a2d30, #0c1519 65%); }
@@ -180,6 +188,15 @@
         <button class="button secondary" id="retry-gps" type="button" hidden>Retry location access</button>
       </div>
       <p class="message" id="geo-unavailable" role="status" hidden></p>
+      <section class="map-panel" aria-labelledby="live-map-title">
+        <h2 id="live-map-title">Your position &amp; traffic light</h2>
+        <p class="map-legend">Blue ✚: ambulance · Circle: traffic light</p>
+        <div class="map-canvas" id="live-map" aria-label="Live ambulance and traffic light map"></div>
+        <p class="map-note" id="live-map-note" role="status">Loading map…</p>
+        <p class="map-legend" id="map-position-note">Waiting for location updates.</p>
+        <p class="message" id="map-live-error" role="status" hidden></p>
+        <button class="button secondary" id="fit-live-map" type="button">Show both positions</button>
+      </section>
     </main>
 
     <footer>
@@ -217,6 +234,135 @@
     let placementBusy = false;
     let confirmationTimer = null;
     let pageActive = true;
+    let liveMap = null;
+    let mapLight = null;
+    let mapLightBusy = false;
+    let mapMarkerKeys = "";
+    const MAP_LIGHT_POLL_MS = 2000;
+
+    // Optional maps load independently of the application's request/GPS startup.
+    function loadMapLibrary() {
+      const loadAsset = (tag, url) => new Promise((resolve, reject) => {
+        const element = document.createElement(tag);
+        const timeout = setTimeout(() => reject(new Error("Map library timed out")), 10000);
+        element.onload = () => { clearTimeout(timeout); resolve(); };
+        element.onerror = () => { clearTimeout(timeout); reject(new Error("Map library unavailable")); };
+        if (tag === "link") { element.rel = "stylesheet"; element.href = url; }
+        else { element.src = url; element.async = true; }
+        document.head.append(element);
+      });
+      return Promise.all([
+        loadAsset("link", "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"),
+        loadAsset("script", "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js")
+      ]);
+    }
+
+    function createDemoMap(elementId, noteId) {
+      const note = document.getElementById(noteId);
+      const instance = { map: null, markers: new Map(), ready: false };
+      const fail = () => {
+        instance.ready = false;
+        note.textContent = "Map unavailable. Check your internet connection or reload the page.";
+        note.hidden = false;
+      };
+      instance.safe = (action) => { try { return action(); } catch (error) { fail(); } };
+      instance.safe(() => {
+        instance.map = L.map(elementId, { scrollWheelZoom: false }).setView([28.6139, 77.2090], 13);
+        let tileErrors = 0;
+        const tileTimeout = setTimeout(() => { if (!instance.ready) fail(); }, 12000);
+        // Standard OSM tiles with visible attribution; no prefetching or cache bypass.
+        const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        });
+        tiles.on("loading", () => { tileErrors = 0; instance.ready = false; });
+        tiles.on("tileerror", () => { tileErrors++; fail(); });
+        tiles.on("load", () => {
+          clearTimeout(tileTimeout);
+          instance.ready = tileErrors === 0;
+          if (instance.ready) { note.hidden = true; note.textContent = ""; }
+          else fail();
+        });
+        tiles.addTo(instance.map);
+      });
+      if (!instance.map) return null;
+      instance.marker = (key, coordinates, color, label, ambulance = false) => instance.safe(() => {
+        let marker = instance.markers.get(key);
+        if (!coordinates) {
+          if (marker) instance.map.removeLayer(marker);
+          instance.markers.delete(key);
+          return;
+        }
+        if (!marker) {
+          const tooltip = document.createElement("span");
+          tooltip.textContent = label;
+          marker = ambulance
+            ? L.marker(coordinates, { title: label, icon: L.divIcon({
+                className: "ambulance-map-marker", html: '<span aria-hidden="true">✚</span>',
+                iconSize: [28, 28], iconAnchor: [14, 14]
+              }) })
+            : L.circleMarker(coordinates, { radius: 9, color: "#ffffff", weight: 3, fillColor: color, fillOpacity: 1 });
+          marker.bindTooltip(tooltip).addTo(instance.map);
+          instance.markers.set(key, marker);
+        } else {
+          marker.setLatLng(coordinates);
+          if (!ambulance) marker.setStyle({ fillColor: color });
+          const tooltip = document.createElement("span");
+          tooltip.textContent = label;
+          marker.setTooltipContent(tooltip);
+        }
+      });
+      instance.fit = () => instance.safe(() => {
+        const points = [...instance.markers.values()].map(marker => marker.getLatLng());
+        if (points.length) instance.map.fitBounds(L.latLngBounds(points), { padding: [30, 30], maxZoom: 16, animate: false });
+      });
+      return instance;
+    }
+
+
+    function updateDriverMap() {
+      if (!liveMap) return;
+      const serverTime = Date.parse(driver?.last_gps_update || "");
+      const useLocal = localPosition && (!Number.isFinite(serverTime) || localPosition.timestamp >= serverTime);
+      const lat = useLocal ? localPosition.lat : driver?.current_lat;
+      const lon = useLocal ? localPosition.lon : driver?.current_lon;
+      const hasDriver = coordinatesValid(lat, lon);
+      const hasLight = mapLight && coordinatesValid(mapLight.lat, mapLight.lon);
+      liveMap.marker("driver", hasDriver ? [lat, lon] : null, "#1d4ed8", "Your ambulance · latest reported position", true);
+      liveMap.marker("light", hasLight ? [mapLight.lat, mapLight.lon] : null,
+        { idle: "#64748b", yellow_flash: "#f59e0b", green: "#16a34a" }[mapLight?.state] || "#64748b",
+        `Traffic light · ${mapLight?.state || "unknown"}`);
+      $("map-position-note").textContent = `Ambulance: ${hasDriver ? "last reported GPS" : "waiting for GPS"} · Light: ${hasLight ? mapLight.state.replaceAll("_", " ") : mapLight ? "not placed yet" : "waiting for server"}`;
+      const keys = [...liveMap.markers.keys()].join(",");
+      if (keys !== mapMarkerKeys) liveMap.fit();
+      mapMarkerKeys = keys;
+    }
+
+    // Additional read-only poll for the new map; original driver/GPS flows stay intact.
+    async function pollMapLight() {
+      if (!pageActive || !liveMap || mapLightBusy) return;
+      mapLightBusy = true;
+      try {
+        const light = await api("/traffic-light/state");
+        if (!light || !["idle", "yellow_flash", "green"].includes(light.state)) throw new Error("Light state unavailable.");
+        mapLight = light;
+        updateDriverMap();
+        message("map-live-error", "");
+      } catch (error) {
+        message("map-live-error", `Light map update failed. ${error.message} Last known position retained; retrying automatically.`);
+      } finally { mapLightBusy = false; }
+    }
+
+    async function initializeMaps() {
+      try {
+        await loadMapLibrary();
+        liveMap = createDemoMap("live-map", "live-map-note");
+        updateDriverMap();
+        void pollMapLight();
+      } catch (error) {
+        message("live-map-note", "Map unavailable. Status and location sharing still work.");
+      }
+    }
 
     const isDriving = () => ["en_route_pickup", "en_route_hospital"].includes(driver?.status);
     const coordinatesValid = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
@@ -320,6 +466,7 @@
           gpsQueue = { lat, lon };
           setGpsMessage("GPS signal received", "Sending your latest location to dispatch.");
           updateDistance();
+          updateDriverMap();
           scheduleGps();
         }, (error) => {
           if (generation !== watchGeneration) return;
@@ -433,6 +580,7 @@
       renderDriver();
       if (isDriving()) startGps();
       else { stopGps(); gpsBlocked = false; localPosition = null; }
+      updateDriverMap();
     }
 
     async function pollDriver() {
@@ -514,10 +662,13 @@
     $("mission-action").addEventListener("click", changeStatus);
     $("place-light").addEventListener("click", placeTrafficLight);
     $("retry-gps").addEventListener("click", () => startGps(true));
+    $("fit-live-map").addEventListener("click", () => liveMap?.fit());
     const unavailable = geoUnavailableReason();
     message("geo-unavailable", unavailable);
     $("place-light").disabled = Boolean(unavailable);
     renderDriver();
+    void initializeMaps();
+    setInterval(() => void pollMapLight(), MAP_LIGHT_POLL_MS);
     void pollDriver();
     setInterval(() => { updateDistance(); void pollDriver(); }, POLL_MS);
     window.addEventListener("online", () => { void pollDriver(); scheduleGps(); });

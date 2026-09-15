@@ -12,7 +12,7 @@
       python -m http.server 8081
     Open http://localhost:8081 and run the FastAPI server separately on port 8000.
     Edit SERVER_URL at the top of the script before deploying.
-    Location features require HTTPS or localhost. They never start a GPS watch.
+    Location features require HTTPS or localhost. Your map location stays on this device.
   -->
   <style>
     :root {
@@ -121,12 +121,8 @@
     .light-panel .feedback[data-tone="success"] { color: #a7ecd3; }
     .driver-error { margin: 0; padding: 0 24px 16px; }
     .page-footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 24px; color: var(--muted); font-size: 11px; line-height: 1.6; }
-    .map-canvas { height: 320px; width: 100%; border-radius: 10px; background: #dce6e3; position: relative; z-index: 0; color: #1c3135; }
-    .live-map-block { padding: 20px 24px; border-top: 1px solid #355056; }
-    .live-map-block h3 { margin: 0 0 8px; font-size: 14px; }
-    .live-map-block .map-canvas { height: 240px; }
+    .map-canvas { height: 380px; width: 100%; border-radius: 10px; background: #dce6e3; position: relative; z-index: 0; color: #1c3135; }
     .map-note { font-size: 12px; line-height: 1.6; margin: 10px 0; color: #b32928; }
-    .live-map-block .map-note { color: #ffb8b0; }
     .map-tools { display: flex; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
     .map-tools .button { flex: 1; }
     .map-tools [aria-pressed="true"] { box-shadow: inset 0 0 0 2px currentColor; }
@@ -190,14 +186,6 @@
           <p class="feedback" id="light-error" role="status" hidden></p>
         </div>
         <div class="light-setup"><div class="setup-row"><p class="setup-hint">Setting up the demo?<br>Stand next to the physical light.</p><button class="button button-light" id="place-light" type="button">Set traffic light to my location</button></div><p class="feedback" id="placement-feedback" role="status" hidden></p><p class="feedback" id="light-geo-note" hidden></p></div>
-        <section class="live-map-block" aria-labelledby="live-map-title">
-          <h3 id="live-map-title">Live positions</h3>
-          <p class="setup-hint" id="live-driver-note">Tracking the driver in the Driver ID field.</p>
-          <div class="map-legend"><span>✚ Ambulance</span><span><i class="map-key" aria-hidden="true"></i>Traffic light · color follows state</span></div>
-          <div class="map-canvas" id="live-map" aria-label="Live ambulance and traffic light map"></div>
-          <p class="map-note" id="live-map-note" role="status">Loading map…</p>
-          <button class="button button-light" id="fit-live-map" type="button">Show both positions</button>
-        </section>
       </section>
 
       <section class="panel assign-panel" aria-labelledby="assign-title">
@@ -207,8 +195,8 @@
             <label for="driver-id">Driver ID</label><input id="driver-id" name="driver_id" type="text" value="ambulance-1" required maxlength="128" pattern="[A-Za-z0-9_\-]+" title="Use letters, numbers, underscores, or hyphens." autocomplete="off" spellcheck="false" aria-describedby="driver-help">
             <p class="field-help" id="driver-help">Use the ID shown in the driver's phone app.</p>
             <div class="stop-fields">
-              <h3 class="stop-title">Choose emergency stops</h3>
-              <p class="field-help">Choose a mode, then click the map. Traffic light clicks save immediately. Starts in New Delhi.</p>
+              <h3 class="stop-title">Dispatch map · all positions</h3>
+              <p class="field-help">Pan or zoom anywhere in the world. Choose a mode, then click the map. Traffic light clicks save immediately.</p>
               <div class="map-tools" role="group" aria-label="Location to place on the map">
                 <button class="button" id="set-pickup" type="button" aria-pressed="true">Set pickup</button>
                 <button class="button" id="set-hospital" type="button" aria-pressed="false">Set hospital</button>
@@ -218,7 +206,10 @@
               <div class="map-canvas" id="assignment-map" aria-label="Click to choose pickup, hospital, or traffic light"></div>
               <p class="map-note" id="assignment-map-note" role="status">Loading map…</p>
               <p class="feedback" id="map-placement-feedback" role="status" hidden></p>
-              <div class="map-legend"><span><i class="map-key pickup-key" aria-hidden="true"></i>Pickup</span><span><i class="map-key hospital-key" aria-hidden="true"></i>Hospital</span><span><i class="map-key traffic-light-key" aria-hidden="true"></i>Traffic light</span></div>
+              <div class="map-legend"><span><i class="map-key pickup-key" aria-hidden="true"></i>Pickup</span><span><i class="map-key hospital-key" aria-hidden="true"></i>Hospital</span><span>✚ Ambulance</span><span><i class="map-key" style="background:#9333ea" aria-hidden="true"></i>You</span><span><i class="map-key traffic-light-key" aria-hidden="true"></i>Traffic light · color follows state</span></div>
+              <p class="field-help" id="live-driver-note">Tracking the driver in the Driver ID field.</p>
+              <p class="feedback" id="my-location-note" role="status">Finding your location…</p>
+              <div class="map-tools"><button class="button" id="show-my-location" type="button">Show my location / retry</button><button class="button" id="fit-live-map" type="button">Show all pins</button></div>
               <p class="stop-coordinate" id="pickup-coordinates" aria-live="polite">Pickup: not selected</p>
               <p class="stop-coordinate" id="hospital-coordinates" aria-live="polite">Hospital: not selected</p>
               <button class="button location-shortcut" id="use-pickup" type="button">Use my location for pickup</button>
@@ -260,12 +251,13 @@
     let placementTimer = null;
     let pageActive = true;
     let assignmentMap = null;
-    let liveMap = null;
+    let myPosition = null;
+    let myWatchId = null;
+    let myWatchGeneration = 0;
     let selectedStop = "pickup";
     let pickupLocation = null;
     let hospitalLocation = null;
     let liveDrivers = [];
-    let liveDriverId = "";
     let liveMarkerKeys = "";
     let mapPlacementTimer = null;
 
@@ -360,12 +352,6 @@
         : `Click the map to set the ${stop}.`;
     }
 
-    function updateAssignmentLightMarker() {
-      const placed = lastLight && validCoordinates(lastLight.lat, lastLight.lon);
-      assignmentMap?.marker("traffic-light", placed ? [lastLight.lat, lastLight.lon] : null,
-        "#374151", "Traffic light · confirmed position");
-    }
-
     async function placeTrafficLightOnMap(location) {
       // Share the GPS placement lock so the two methods cannot race each other.
       if (placementBusy) {
@@ -379,9 +365,8 @@
       try {
         const light = await api("/traffic-light/location", location);
         lightVersion++; // Discard polls started before this confirmed placement.
-        // Both maps use the server response. No optimistic marker move to revert.
+        // Only the confirmed server response moves the marker.
         renderLight(light);
-        liveMap?.fit();
         feedback("light-error", "");
         feedback("map-placement-feedback", "Traffic light placed here", "success");
         mapPlacementTimer = setTimeout(() => feedback("map-placement-feedback", ""), 5000);
@@ -407,15 +392,24 @@
       const selected = records.find(record => record.driver_id === id);
       const hasPosition = selected && validCoordinates(selected.current_lat, selected.current_lon);
       $("live-driver-note").textContent = `${id || "No driver selected"} · ${hasPosition ? "last reported GPS" : "waiting for GPS"}`;
-      if (!liveMap) return;
-      liveMap.marker("driver", hasPosition ? [selected.current_lat, selected.current_lon] : null, "#1d4ed8", `Ambulance · ${id}`, true);
+      if (!assignmentMap) return;
+      assignmentMap.marker("driver", hasPosition ? [selected.current_lat, selected.current_lon] : null, "#1d4ed8", `Ambulance · ${id}`, true);
+      assignmentMap.marker("me", myPosition ? [myPosition.lat, myPosition.lon] : null, "#9333ea", "You · dispatcher device");
       const placed = lastLight && validCoordinates(lastLight.lat, lastLight.lon);
-      liveMap.marker("light", placed ? [lastLight.lat, lastLight.lon] : null,
-        { idle: "#64748b", yellow_flash: "#f59e0b", green: "#16a34a" }[lastLight?.state] || "#64748b",
+      assignmentMap.marker("traffic-light", placed ? [lastLight.lat, lastLight.lon] : null,
+        { idle: "#374151", yellow_flash: "#f59e0b", green: "#16a34a" }[lastLight?.state] || "#374151",
         `Traffic light · ${lastLight?.state || "unknown"}`);
-      const keys = [...liveMap.markers.keys()].join(",");
-      if (id !== liveDriverId || keys !== liveMarkerKeys) liveMap.fit();
-      liveDriverId = id;
+      // Show the selected driver's saved stops until a draft stop is chosen.
+      for (const stop of ["pickup", "hospital"]) {
+        const draft = stop === "pickup" ? pickupLocation : hospitalLocation;
+        const lat = draft?.lat ?? selected?.assignment?.[`${stop}_lat`];
+        const lon = draft?.lon ?? selected?.assignment?.[`${stop}_lon`];
+        assignmentMap.marker(stop, validCoordinates(lat, lon) ? [lat, lon] : null,
+          stop === "pickup" ? "#dc3545" : "#2563eb", `${stop === "pickup" ? "Pickup" : "Hospital"}${draft ? " · selected" : " · assigned"}`);
+      }
+      const keys = [...assignmentMap.markers.keys()].join(",");
+      // Polls never recenter while the dispatcher is choosing a location.
+      if (!liveMarkerKeys && keys) assignmentMap.fit();
       liveMarkerKeys = keys;
     }
 
@@ -423,7 +417,6 @@
       try {
         await loadMapLibrary();
         assignmentMap = createDemoMap("assignment-map", "assignment-map-note");
-        liveMap = createDemoMap("live-map", "live-map-note");
         assignmentMap?.safe(() => assignmentMap.map.on("click", event => {
           if (assignmentBusy || pickupBusy) return;
           if (!assignmentMap.ready) {
@@ -442,11 +435,9 @@
         if (pickupLocation) selectStop("pickup", pickupLocation);
         if (hospitalLocation) selectStop("hospital", hospitalLocation);
         if (pickupLocation || hospitalLocation) assignmentMap?.fit();
-        updateAssignmentLightMarker();
         updateLiveMap();
       } catch (error) {
         feedback("assignment-map-note", "Map unavailable. Check your internet connection and reload the page.");
-        feedback("live-map-note", "Map unavailable. Status polling will continue.");
       }
       updateFormButtons();
     }
@@ -565,7 +556,6 @@
       $("light-description").textContent = !placed ? "Place the traffic light to begin the demo." : light.state === "idle" ? "Standing by for an approaching ambulance." : light.state === "yellow_flash" ? "Ambulance approaching. Preparing the priority signal." : "Priority signal is green for the ambulance.";
       $("light-location").textContent = placed ? `${light.lat.toFixed(5)}, ${light.lon.toFixed(5)}` : "Not placed yet";
       $("light-changed").textContent = light.state_changed_at ? formatTime(light.state_changed_at) : "—";
-      updateAssignmentLightMarker();
       updateLiveMap();
     }
 
@@ -609,6 +599,39 @@
           resolve({ lat, lon });
         }, reject, GEO_OPTIONS);
       });
+    }
+
+    function stopMyLocation() {
+      myWatchGeneration++;
+      if (myWatchId !== null) navigator.geolocation.clearWatch(myWatchId);
+      myWatchId = null;
+    }
+
+    function startMyLocation(center = false) {
+      if (!pageActive) return;
+      if (myWatchId !== null && !center) return;
+      stopMyLocation();
+      const unavailable = geoUnavailable();
+      if (unavailable) { feedback("my-location-note", unavailable); return; }
+      const generation = myWatchGeneration;
+      feedback("my-location-note", "Finding your location…", "info");
+      try {
+        myWatchId = navigator.geolocation.watchPosition(position => {
+          if (generation !== myWatchGeneration) return;
+          const { latitude: lat, longitude: lon } = position.coords;
+          if (!validCoordinates(lat, lon)) return;
+          const firstFix = !myPosition;
+          myPosition = { lat, lon };
+          updateLiveMap();
+          if (firstFix && !center) assignmentMap?.fit();
+          feedback("my-location-note", "Your location is shown in purple · visible only on this device.", "info");
+          if (center) { assignmentMap?.safe(() => assignmentMap.map.setView([lat, lon], 16)); center = false; }
+        }, error => {
+          if (generation !== myWatchGeneration) return;
+          if (error.code === 1) stopMyLocation();
+          feedback("my-location-note", `${geoError(error)} ${myPosition ? "Pin shows your last known location. " : ""}Use Show my location / retry.`);
+        }, GEO_OPTIONS);
+      } catch (error) { feedback("my-location-note", geoError(error)); }
     }
 
     function updateFormButtons() {
@@ -696,21 +719,23 @@
     $("set-hospital").addEventListener("click", () => setStopMode("hospital"));
     $("set-traffic-light").addEventListener("click", () => setStopMode("traffic-light"));
     $("driver-id").addEventListener("input", () => updateLiveMap());
-    $("fit-live-map").addEventListener("click", () => liveMap?.fit());
+    $("fit-live-map").addEventListener("click", () => assignmentMap?.fit());
+    $("show-my-location").addEventListener("click", () => startMyLocation(true));
     const unavailable = geoUnavailable();
     feedback("pickup-geo-note", unavailable);
     feedback("light-geo-note", unavailable);
     $("place-light").disabled = Boolean(unavailable);
     updateFormButtons();
     void initializeMaps();
+    startMyLocation();
     void pollDrivers();
     void pollLight();
     setInterval(() => void pollDrivers(), DRIVER_POLL_MS);
     setInterval(() => void pollLight(), LIGHT_POLL_MS);
     window.addEventListener("online", () => { void pollDrivers(); void pollLight(); });
     document.addEventListener("visibilitychange", () => { if (!document.hidden) { void pollDrivers(); void pollLight(); } });
-    window.addEventListener("pagehide", () => { pageActive = false; });
-    window.addEventListener("pageshow", () => { pageActive = true; void pollDrivers(); void pollLight(); });
+    window.addEventListener("pagehide", () => { pageActive = false; stopMyLocation(); });
+    window.addEventListener("pageshow", () => { pageActive = true; void pollDrivers(); void pollLight(); startMyLocation(); });
   </script>
 </body>
 </html>

@@ -189,13 +189,16 @@
       </div>
       <p class="message" id="geo-unavailable" role="status" hidden></p>
       <section class="map-panel" aria-labelledby="live-map-title">
-        <h2 id="live-map-title">Your position &amp; traffic light</h2>
-        <p class="map-legend">Blue ✚: ambulance · Circle: traffic light</p>
-        <div class="map-canvas" id="live-map" aria-label="Live ambulance and traffic light map"></div>
+        <h2 id="live-map-title">Your map · all positions</h2>
+        <p class="map-legend">Blue ✚: you / ambulance · Red: pickup · Blue circle: hospital · Gray / amber / green: traffic light</p>
+        <div class="map-canvas" id="live-map" aria-label="Your location, pickup, hospital, and traffic light map"></div>
         <p class="map-note" id="live-map-note" role="status">Loading map…</p>
         <p class="map-legend" id="map-position-note">Waiting for location updates.</p>
+        <p id="light-distance" role="status">Waiting for traffic light location…</p>
+        <p class="map-legend" id="my-location-note" role="status">Finding your location…</p>
         <p class="message" id="map-live-error" role="status" hidden></p>
-        <button class="button secondary" id="fit-live-map" type="button">Show both positions</button>
+        <button class="button secondary" id="fit-live-map" type="button">Show all pins</button>
+        <button class="button secondary" id="show-my-location" type="button">Show my location / retry</button>
       </section>
     </main>
 
@@ -238,6 +241,11 @@
     let mapLight = null;
     let mapLightBusy = false;
     let mapMarkerKeys = "";
+    let mapLightPositionKey = "";
+    let devicePosition = null;
+    let viewWatchId = null;
+    let viewWatchGeneration = 0;
+    let viewGpsBlocked = false;
     const MAP_LIGHT_POLL_MS = 2000;
 
     // Optional maps load independently of the application's request/GPS startup.
@@ -321,26 +329,45 @@
 
 
     function updateDriverMap() {
-      if (!liveMap) return;
       const serverTime = Date.parse(driver?.last_gps_update || "");
-      const useLocal = localPosition && (!Number.isFinite(serverTime) || localPosition.timestamp >= serverTime);
-      const lat = useLocal ? localPosition.lat : driver?.current_lat;
-      const lon = useLocal ? localPosition.lon : driver?.current_lon;
+      const position = localPosition || devicePosition;
+      const useLocal = position && (!Number.isFinite(serverTime) || position.timestamp >= serverTime);
+      const lat = useLocal ? position.lat : driver?.current_lat;
+      const lon = useLocal ? position.lon : driver?.current_lon;
       const hasDriver = coordinatesValid(lat, lon);
       const hasLight = mapLight && coordinatesValid(mapLight.lat, mapLight.lon);
+      $("map-position-note").textContent = `Ambulance: ${hasDriver ? "last reported GPS" : "waiting for GPS"} · Light: ${hasLight ? mapLight.state.replaceAll("_", " ") : mapLight ? "not placed yet" : "waiting for server"}`;
+      let proximity = "Waiting for traffic light location…";
+      if (mapLight && !hasLight) proximity = "Traffic light not placed yet";
+      else if (hasLight && !hasDriver) proximity = "Waiting for your GPS location to calculate distance to light";
+      else if (hasLight && hasDriver) {
+        const distance = distanceMeters(lat, lon, mapLight.lat, mapLight.lon);
+        const timestamp = useLocal ? position.timestamp : serverTime;
+        const stale = !Number.isFinite(timestamp) || Date.now() - timestamp > 15000;
+        proximity = `${distance < 1000 ? `${Math.round(distance)} m` : `${(distance / 1000).toFixed(1)} km`} to light · straight line${stale ? " · last known GPS" : ""}`;
+      }
+      $("light-distance").textContent = proximity;
+      if (!liveMap) return;
       liveMap.marker("driver", hasDriver ? [lat, lon] : null, "#1d4ed8", "Your ambulance · latest reported position", true);
       liveMap.marker("light", hasLight ? [mapLight.lat, mapLight.lon] : null,
         { idle: "#64748b", yellow_flash: "#f59e0b", green: "#16a34a" }[mapLight?.state] || "#64748b",
         `Traffic light · ${mapLight?.state || "unknown"}`);
-      $("map-position-note").textContent = `Ambulance: ${hasDriver ? "last reported GPS" : "waiting for GPS"} · Light: ${hasLight ? mapLight.state.replaceAll("_", " ") : mapLight ? "not placed yet" : "waiting for server"}`;
+      for (const stop of ["pickup", "hospital"]) {
+        const stopLat = driver?.assignment?.[`${stop}_lat`];
+        const stopLon = driver?.assignment?.[`${stop}_lon`];
+        liveMap.marker(stop, coordinatesValid(stopLat, stopLon) ? [stopLat, stopLon] : null,
+          stop === "pickup" ? "#dc3545" : "#2563eb", stop === "pickup" ? "Pickup" : "Hospital");
+      }
       const keys = [...liveMap.markers.keys()].join(",");
-      if (keys !== mapMarkerKeys) liveMap.fit();
+      const lightKey = hasLight ? `${mapLight.lat},${mapLight.lon}` : "";
+      if (keys !== mapMarkerKeys || lightKey !== mapLightPositionKey) liveMap.fit();
       mapMarkerKeys = keys;
+      mapLightPositionKey = lightKey;
     }
 
     // Additional read-only poll for the new map; original driver/GPS flows stay intact.
     async function pollMapLight() {
-      if (!pageActive || !liveMap || mapLightBusy) return;
+      if (!pageActive || mapLightBusy) return;
       mapLightBusy = true;
       try {
         const light = await api("/traffic-light/state");
@@ -358,7 +385,6 @@
         await loadMapLibrary();
         liveMap = createDemoMap("live-map", "live-map-note");
         updateDriverMap();
-        void pollMapLight();
       } catch (error) {
         message("live-map-note", "Map unavailable. Status and location sharing still work.");
       }
@@ -425,6 +451,47 @@
       return error.message || "Couldn't get your location. Please try again.";
     }
 
+    // Off-duty GPS is for this map only. En-route GPS uses the existing upload watch.
+    function stopViewLocation() {
+      viewWatchGeneration++;
+      if (viewWatchId !== null) navigator.geolocation.clearWatch(viewWatchId);
+      viewWatchId = null;
+    }
+
+    function startViewLocation(force = false) {
+      if (!pageActive || isDriving()) return;
+      if (!force && (viewWatchId !== null || viewGpsBlocked)) return;
+      stopViewLocation();
+      viewGpsBlocked = false;
+      const unavailable = geoUnavailableReason();
+      if (unavailable) { viewGpsBlocked = true; message("my-location-note", unavailable); return; }
+      const generation = viewWatchGeneration;
+      message("my-location-note", "Finding your location…", "info");
+      try {
+        viewWatchId = navigator.geolocation.watchPosition(position => {
+          if (generation !== viewWatchGeneration || isDriving()) return;
+          const { latitude: lat, longitude: lon } = position.coords;
+          if (!coordinatesValid(lat, lon)) return;
+          const firstFix = !devicePosition;
+          devicePosition = { lat, lon, timestamp: position.timestamp };
+          message("my-location-note", "Your location is shown on this device. Sharing starts when you drive.", "info");
+          updateDriverMap();
+          if (firstFix) liveMap?.fit();
+        }, error => {
+          if (generation !== viewWatchGeneration) return;
+          if (error.code === 1) { stopViewLocation(); viewGpsBlocked = true; }
+          message("my-location-note", `${geoErrorText(error)} ${devicePosition ? "Pin shows your last known location. " : ""}Tap Show my location / retry.`);
+        }, GEO_OPTIONS);
+      } catch (error) { viewGpsBlocked = true; message("my-location-note", geoErrorText(error)); }
+    }
+
+    function showMyLocation() {
+      const position = localPosition || devicePosition;
+      if (position) liveMap?.safe(() => liveMap.map.setView([position.lat, position.lon], 16));
+      if (isDriving()) startGps(true);
+      else startViewLocation(true);
+    }
+
     function setGpsMessage(title, text, error = false) {
       $("gps-heading").textContent = title;
       $("gps-message").textContent = text;
@@ -462,11 +529,15 @@
             setGpsMessage("Waiting for valid GPS", "Your device returned an invalid location. Waiting for its next update.", true);
             return;
           }
+          const firstFix = !devicePosition;
           localPosition = { lat, lon, accuracy, timestamp: position.timestamp };
+          devicePosition = localPosition;
+          message("my-location-note", "Your latest GPS position is shown on the map.", "info");
           gpsQueue = { lat, lon };
           setGpsMessage("GPS signal received", "Sending your latest location to dispatch.");
           updateDistance();
           updateDriverMap();
+          if (firstFix) liveMap?.fit();
           scheduleGps();
         }, (error) => {
           if (generation !== watchGeneration) return;
@@ -578,8 +649,8 @@
       driver = record;
       if (driver?.status !== previousStatus) message("action-message", "");
       renderDriver();
-      if (isDriving()) startGps();
-      else { stopGps(); gpsBlocked = false; localPosition = null; }
+      if (isDriving()) { stopViewLocation(); startGps(); }
+      else { stopGps(); gpsBlocked = false; localPosition = null; startViewLocation(); }
       updateDriverMap();
     }
 
@@ -663,11 +734,14 @@
     $("place-light").addEventListener("click", placeTrafficLight);
     $("retry-gps").addEventListener("click", () => startGps(true));
     $("fit-live-map").addEventListener("click", () => liveMap?.fit());
+    $("show-my-location").addEventListener("click", showMyLocation);
     const unavailable = geoUnavailableReason();
     message("geo-unavailable", unavailable);
     $("place-light").disabled = Boolean(unavailable);
     renderDriver();
     void initializeMaps();
+    void pollMapLight();
+    startViewLocation();
     setInterval(() => void pollMapLight(), MAP_LIGHT_POLL_MS);
     void pollDriver();
     setInterval(() => { updateDistance(); void pollDriver(); }, POLL_MS);
@@ -675,8 +749,8 @@
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) { void pollDriver(); startGps(); scheduleGps(); }
     });
-    window.addEventListener("pagehide", () => { pageActive = false; stopGps(); });
-    window.addEventListener("pageshow", () => { pageActive = true; void pollDriver(); startGps(); });
+    window.addEventListener("pagehide", () => { pageActive = false; stopGps(); stopViewLocation(); });
+    window.addEventListener("pageshow", () => { pageActive = true; void pollDriver(); startGps(); startViewLocation(); });
   </script>
 </body>
 </html>

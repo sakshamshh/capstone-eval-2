@@ -107,6 +107,9 @@
     .footer-note { display: flex; justify-content: center; gap: 7px; margin: 26px 0 0; font-size: 10px; color: #8ea4a4; letter-spacing: 1.2px; text-transform: uppercase; }
     .map-panel { margin-top: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #142126; }
     .map-panel h2 { font-size: 14px; margin: 0 0 9px; }
+    .light-proximity { margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #1c3237; }
+    .light-proximity h3 { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
+    .light-proximity p { margin: 0; font-size: 21px; font-weight: 700; line-height: 1.5; font-variant-numeric: tabular-nums; }
     .map-canvas { height: 210px; width: 100%; position: relative; z-index: 0; border-radius: 10px; background: #263b3e; color: #1c3135; }
     .map-note, .map-legend { font-size: 12px; line-height: 1.6; color: var(--muted); margin: 9px 0; }
     .map-note { color: var(--amber); }
@@ -190,11 +193,14 @@
       <p class="message" id="geo-unavailable" role="status" hidden></p>
       <section class="map-panel" aria-labelledby="live-map-title">
         <h2 id="live-map-title">Your map · all positions</h2>
+        <div class="light-proximity">
+          <h3>Distance to next traffic light</h3>
+          <p id="light-distance" role="status">Waiting for traffic light location…</p>
+        </div>
         <p class="map-legend">Blue ✚: you / ambulance · Red: pickup · Blue circle: hospital · Gray / amber / green: traffic light</p>
         <div class="map-canvas" id="live-map" aria-label="Your location, pickup, hospital, and traffic light map"></div>
         <p class="map-note" id="live-map-note" role="status">Loading map…</p>
         <p class="map-legend" id="map-position-note">Waiting for location updates.</p>
-        <p id="light-distance" role="status">Waiting for traffic light location…</p>
         <p class="map-legend" id="my-location-note" role="status">Finding your location…</p>
         <p class="message" id="map-live-error" role="status" hidden></p>
         <button class="button secondary" id="fit-live-map" type="button">Show all pins</button>

@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="HQ dispatch for the ambulance-priority traffic light demo.">
+  <title>Lifeline · HQ dispatch</title>
+  <!--
+    No build step or dependencies. Serve this folder with:
+      python -m http.server 8081
+    Open http://localhost:8081 and run the FastAPI server separately on port 8000.
+    Edit SERVER_URL at the top of the script before deploying.
+    Location features require HTTPS or localhost. They never start a GPS watch.
+  -->
+  <style>
+    :root {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-synthesis: none; color: #1c3135; background: #f1f4f3;
+      --muted: #5b7074; --line: #dce4e2; --green: #17674f;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; min-width: 300px; }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: default; opacity: .6; }
+    :focus-visible { outline: 3px solid #378bcd; outline-offset: 3px; }
+    svg { display: block; flex-shrink: 0; }
+    .topbar { background: #10292d; color: #eef8f3; }
+    .topbar-inner { max-width: 1280px; margin: auto; min-height: 76px; padding: 18px 32px; display: flex; align-items: center; gap: 30px; }
+    .brand { display: flex; align-items: center; gap: 11px; font-size: 18px; font-weight: 800; letter-spacing: 2px; }
+    .brand-mark { width: 34px; height: 34px; background: #a7ecd3; color: #173e32; display: grid; place-items: center; border-radius: 10px; }
+    .workspace-label { color: #aec6c6; font-size: 13px; padding-left: 26px; border-left: 1px solid #426064; }
+    .demo { margin-left: auto; font-size: 10px; letter-spacing: 1.4px; border: 1px solid #486366; color: #c8dcda; padding: 6px 9px; border-radius: 5px; white-space: nowrap; }
+    .page { max-width: 1280px; margin: auto; padding: 34px 32px 24px; }
+    .page-heading { display: flex; justify-content: space-between; align-items: end; gap: 18px; margin-bottom: 26px; }
+    .eyebrow { margin: 0 0 8px; font-size: 10px; font-weight: 750; letter-spacing: 1.7px; text-transform: uppercase; color: var(--muted); }
+    h1 { font-size: clamp(26px, 3vw, 34px); letter-spacing: -1px; margin: 0 0 8px; line-height: 1.2; }
+    .subtitle { margin: 0; font-size: 14px; color: var(--muted); line-height: 1.6; }
+    .refresh-hint { color: var(--muted); font-size: 12px; white-space: nowrap; padding-bottom: 3px; }
+    .dashboard { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(330px, 1fr); grid-template-areas: "light assign" "drivers assign"; gap: 22px; align-items: start; }
+    .panel { background: #fff; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; min-width: 0; }
+    .panel-header { padding: 22px 24px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    h2 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.25px; }
+    .subtle-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); white-space: nowrap; }
+    .light-panel { grid-area: light; background: #132d31; color: #edf7f4; border-color: #234247; }
+    .light-panel .panel-header { border-bottom: 1px solid #315056; }
+    .light-panel .subtle-tag { color: #b5c9c8; }
+    .monitor { padding: 27px 26px 24px; }
+    .monitor-main { display: flex; justify-content: space-between; align-items: center; gap: 24px; min-height: 145px; }
+    .monitor-copy { min-width: 0; }
+    .monitor .eyebrow { color: #a8c1c0; margin-bottom: 13px; }
+    .state-word { font-size: clamp(36px, 4.2vw, 58px); font-weight: 800; letter-spacing: -1.8px; line-height: 1.08; color: #cad6d7; display: inline-block; padding: 7px 13px 9px; border-radius: 10px; background: #30494e; border: 1px solid #4b6468; }
+    .state-description { color: #c0d2d0; font-size: 13px; margin: 14px 0 0; line-height: 1.6; max-width: 340px; }
+    .signal { display: grid; gap: 12px; padding: 16px; border-radius: 30px; background: #092024; border: 1px solid #3b575c; box-shadow: inset 0 2px 8px #0003; flex-shrink: 0; }
+    .lamp { width: 31px; height: 31px; border-radius: 50%; background: #243e43; border: 1px solid #405a5e; }
+    .light-panel[data-state="idle"] .lamp-idle { background: #a3b1b5; box-shadow: 0 0 20px #a3b1b522; }
+    .light-panel[data-state="yellow_flash"] .state-word { color: #ffcf79; background: #493b21; border-color: #80623a; animation: amber-pulse 1.2s ease-in-out infinite; font-size: clamp(30px, 3.4vw, 46px); }
+    .light-panel[data-state="yellow_flash"] .lamp-yellow { background: #ffc456; box-shadow: 0 0 25px #ffc45666; animation: amber-pulse 1.2s ease-in-out infinite; }
+    .light-panel[data-state="green"] .state-word { color: #a7f1ca; background: #194b3b; border-color: #377e60; }
+    .light-panel[data-state="green"] .lamp-green { background: #74e3a3; box-shadow: 0 0 25px #74e3a366; }
+    .light-panel[data-stale="true"] .state-word, .light-panel[data-stale="true"] .lamp { animation: none; }
+    .light-panel[data-stale="true"] .signal { opacity: .5; }
+    @keyframes amber-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+    .light-details { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; border-top: 1px solid #355056; margin: 24px 0 0; padding-top: 18px; }
+    dt { font-size: 10px; font-weight: 650; letter-spacing: 1.1px; text-transform: uppercase; color: #acc2c1; margin-bottom: 8px; }
+    dd { margin: 0; font-size: 13px; line-height: 1.6; }
+    .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .light-setup { padding: 18px 24px; border-top: 1px solid #355056; background: #19353a; }
+    .setup-row { display: flex; gap: 15px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+    .setup-hint { color: #b5cbca; font-size: 12px; margin: 0; line-height: 1.6; }
+    .button { display: inline-flex; gap: 9px; align-items: center; justify-content: center; min-height: 43px; padding: 11px 14px; border: 1px solid #cedbd6; border-radius: 8px; font-size: 12px; font-weight: 650; line-height: 1.4; background: #fff; color: #25423b; }
+    .button-light { background: #26474a; border-color: #5b797b; color: #f0faf5; }
+    .primary { min-height: 48px; width: 100%; color: #fff; background: #17674f; border-color: #17674f; font-size: 14px; }
+    .button:not(:disabled):hover { filter: brightness(.94); }
+    .button-light:not(:disabled):hover { filter: brightness(1.12); }
+    .assign-panel { grid-area: assign; }
+    .assign-panel .panel-header { border-bottom: 1px solid var(--line); }
+    form { padding: 22px 24px 24px; }
+    label { display: block; color: #334e52; font-size: 12px; font-weight: 650; margin-bottom: 8px; }
+    input { width: 100%; min-width: 0; min-height: 43px; border: 1px solid #bdceca; border-radius: 7px; padding: 10px 11px; color: #183b34; background: #fbfcfc; font-family: var(--mono); font-size: 13px; }
+    input:focus { border-color: #17674f; }
+    input:disabled { background: #eef2f0; color: #697c77; }
+    .field-help { font-size: 11px; color: var(--muted); line-height: 1.6; margin: 7px 0 0; }
+    fieldset { min-width: 0; padding: 0; border: 0; margin: 0; }
+    .stop-fields { padding-top: 23px; margin-top: 21px; border-top: 1px solid var(--line); }
+    .stop-title { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 700; margin: 0 0 17px; }
+    .step { width: 22px; height: 22px; display: inline-grid; place-items: center; background: #e8f1ed; color: #29624c; border-radius: 6px; font-family: var(--mono); font-size: 10px; }
+    .field-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .location-shortcut { width: 100%; margin-top: 12px; color: #17674f; background: #f4f8f5; }
+    .submit-section { margin-top: 26px; }
+    .submit-note { text-align: center; font-size: 11px; color: var(--muted); margin: 10px 0 0; line-height: 1.6; }
+    .drivers-panel { grid-area: drivers; }
+    .count { display: inline-block; margin-left: 7px; font-size: 11px; color: var(--muted); background: #eef3f1; padding: 3px 6px; border-radius: 5px; vertical-align: middle; }
+    .table-wrap { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; text-align: left; font-size: 12px; }
+    th { padding: 11px 16px; background: #f5f8f6; color: var(--muted); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; border-block: 1px solid var(--line); }
+    td { padding: 15px 16px; border-bottom: 1px solid #dfe7e4; vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: 0; }
+    .driver-name { font-weight: 700; overflow-wrap: anywhere; min-width: 110px; }
+    .status-label { display: inline-block; padding: 5px 7px; font-size: 10px; font-weight: 700; border-radius: 5px; white-space: nowrap; }
+    .status-idle { background: #f3f5f6; color: #45545e; }
+    .status-assigned { background: #fff6e5; color: #87520a; }
+    .status-en_route_pickup, .status-en_route_hospital { background: #eef6ff; color: #1c5587; }
+    .status-completed { background: #ecf7f0; color: #226342; }
+    .status-idle .status-label { background: #e1e6e9; }
+    .status-assigned .status-label { background: #ffe3ae; }
+    .status-en_route_pickup .status-label, .status-en_route_hospital .status-label { background: #d6e9ff; }
+    .status-completed .status-label { background: #d3eedf; }
+    .coordinates { min-width: 150px; line-height: 1.8; font-size: 11px; }
+    .gps-age { display: block; font: 10px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin-top: 4px; color: #5b7074; }
+    .empty { padding: 25px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.7; }
+    .panel-foot { padding: 12px 24px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); line-height: 1.6; }
+    .feedback { margin: 12px 0 0; color: #b32928; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+    .feedback[data-tone="success"] { color: #17674f; }
+    .feedback[data-tone="info"] { color: var(--muted); }
+    .light-panel .feedback { color: #ffb8b0; }
+    .light-panel .feedback[data-tone="success"] { color: #a7ecd3; }
+    .driver-error { margin: 0; padding: 0 24px 16px; }
+    .page-footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 24px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+    noscript p { padding: 15px; background: #fff0d2; color: #784800; }
+    @media (max-width: 980px) {
+      .dashboard { grid-template-columns: minmax(0, 1fr) minmax(310px, .9fr); gap: 16px; }
+      .page, .topbar-inner { padding-left: 20px; padding-right: 20px; }
+      .monitor { padding: 23px 20px; }
+      .monitor-main { gap: 14px; }
+      .light-details { grid-template-columns: 1fr; gap: 14px; }
+      .state-word { font-size: 40px; }
+      .light-panel[data-state="yellow_flash"] .state-word { font-size: 31px; }
+    }
+    @media (max-width: 760px) {
+      .dashboard { grid-template-columns: minmax(0, 1fr); grid-template-areas: "light" "assign" "drivers"; }
+      .workspace-label, .refresh-hint { display: none; }
+      .page { padding-top: 26px; }
+      .page-footer { flex-direction: column; gap: 4px; }
+      .light-details { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 390px) {
+      .page, .topbar-inner { padding-left: 14px; padding-right: 14px; }
+      .monitor-main { gap: 10px; }
+      .signal { padding: 12px; }
+      .lamp { width: 24px; height: 24px; }
+      .light-panel[data-state="yellow_flash"] .state-word { font-size: 26px; }
+      .light-details, .field-pair { grid-template-columns: 1fr; }
+      form, .panel-header { padding-left: 18px; padding-right: 18px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .state-word, .lamp { animation: none !important; } }
+  </style>
+</head>
+<body>
+  <header class="topbar"><div class="topbar-inner">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"><svg width="21" height="21" viewBox="0 0 24 24" fill="currentColor"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6Z"/></svg></span>LIFELINE</div>
+    <span class="workspace-label">HQ / Dispatch center</span><span class="demo">CAPSTONE DEMO</span>
+  </div></header>
+  <main class="page">
+    <noscript><p>Enable JavaScript to load drivers, assign emergencies, and monitor the traffic light.</p></noscript>
+    <div class="page-heading"><div><p class="eyebrow">Operations workspace</p><h1>Dispatch overview</h1><p class="subtitle">Coordinate the response. Watch the way clear.</p></div><span class="refresh-hint">Automatic updates · No refresh needed</span></div>
+
+    <div class="dashboard">
+      <section class="panel light-panel" id="light-panel" data-state="unknown" data-stale="true" aria-labelledby="light-title">
+        <div class="panel-header"><h2 id="light-title">Traffic light monitor</h2><span class="subtle-tag">Single intersection</span></div>
+        <div class="monitor">
+          <div class="monitor-main">
+            <div class="monitor-copy"><p class="eyebrow" id="light-freshness">Connecting to server</p><div class="state-word" id="light-state" role="status" aria-live="polite">Waiting</div><p class="state-description" id="light-description">The traffic light's reported state will appear here.</p></div>
+            <div class="signal" aria-hidden="true"><span class="lamp lamp-idle"></span><span class="lamp lamp-yellow"></span><span class="lamp lamp-green"></span></div>
+          </div>
+          <dl class="light-details"><div><dt>Registered location</dt><dd class="mono" id="light-location">Waiting for server…</dd></div><div><dt>State changed at</dt><dd class="mono" id="light-changed">—</dd></div></dl>
+          <p class="feedback" id="light-error" role="status" hidden></p>
+        </div>
+        <div class="light-setup"><div class="setup-row"><p class="setup-hint">Setting up the demo?<br>Stand next to the physical light.</p><button class="button button-light" id="place-light" type="button">Set traffic light to my location</button></div><p class="feedback" id="placement-feedback" role="status" hidden></p><p class="feedback" id="light-geo-note" hidden></p></div>
+      </section>
+
+      <section class="panel assign-panel" aria-labelledby="assign-title">
+        <div class="panel-header"><h2 id="assign-title">Assign an emergency</h2><span class="subtle-tag">Dispatch</span></div>
+        <form id="assignment-form">
+          <fieldset id="assignment-fields">
+            <label for="driver-id">Driver ID</label><input id="driver-id" name="driver_id" type="text" value="ambulance-1" required maxlength="128" pattern="[A-Za-z0-9_\-]+" title="Use letters, numbers, underscores, or hyphens." autocomplete="off" spellcheck="false" aria-describedby="driver-help">
+            <p class="field-help" id="driver-help">Use the ID shown in the driver's phone app.</p>
+            <div class="stop-fields"><h3 class="stop-title"><span class="step" aria-hidden="true">01</span>Pickup location</h3>
+              <fieldset id="pickup-fields" aria-label="Pickup coordinates"><div class="field-pair">
+                <div><label for="pickup-lat">Latitude</label><input id="pickup-lat" name="pickup_lat" type="number" min="-90" max="90" step="any" placeholder="−90 to 90" required></div>
+                <div><label for="pickup-lon">Longitude</label><input id="pickup-lon" name="pickup_lon" type="number" min="-180" max="180" step="any" placeholder="−180 to 180" required></div>
+              </div></fieldset>
+              <button class="button location-shortcut" id="use-pickup" type="button"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="6"/><circle cx="10" cy="10" r="2"/><path d="M10 0v4m0 12v4M0 10h4m12 0h4"/></svg>Use my current location as pickup</button>
+              <p class="feedback" id="pickup-feedback" role="status" hidden></p><p class="feedback" id="pickup-geo-note" hidden></p>
+            </div>
+            <div class="stop-fields"><h3 class="stop-title"><span class="step" aria-hidden="true">02</span>Hospital location</h3><div class="field-pair">
+              <div><label for="hospital-lat">Latitude</label><input id="hospital-lat" name="hospital_lat" type="number" min="-90" max="90" step="any" placeholder="−90 to 90" required></div>
+              <div><label for="hospital-lon">Longitude</label><input id="hospital-lon" name="hospital_lon" type="number" min="-180" max="180" step="any" placeholder="−180 to 180" required></div>
+            </div></div>
+          </fieldset>
+          <div class="submit-section"><button class="button primary" id="send-assignment" type="submit">Send emergency assignment <span aria-hidden="true">→</span></button><p class="submit-note">Creates or replaces this driver's current assignment.</p><p class="feedback" id="assignment-feedback" role="status" hidden></p></div>
+        </form>
+      </section>
+
+      <section class="panel drivers-panel" aria-labelledby="drivers-title">
+        <div class="panel-header"><h2 id="drivers-title">Driver activity <span class="count" id="driver-count">—</span></h2><span class="subtle-tag">Every 3 seconds</span></div>
+        <p class="feedback driver-error" id="drivers-error" role="status" hidden></p>
+        <div class="table-wrap"><table aria-label="Drivers and their last known GPS positions"><thead><tr><th scope="col">Driver</th><th scope="col">Status</th><th scope="col">Last known GPS</th></tr></thead><tbody id="driver-rows"></tbody></table></div>
+        <p class="empty" id="drivers-empty">Loading drivers…</p><div class="panel-foot" id="drivers-updated">Waiting for the first update.</div>
+      </section>
+    </div>
+    <footer class="page-footer"><span>Lifeline / HQ dispatch · Demo workspace</span><span>Light polls every 2s · Driver list polls every 3s</span></footer>
+  </main>
+
+  <script>
+    const SERVER_URL = "http://localhost:8000"; // Replace with your Render HTTPS URL.
+    const DEMO_KEY = "traffic-demo-2026";
+    const DRIVER_POLL_MS = 3000;
+    const LIGHT_POLL_MS = 2000;
+    const REQUEST_TIMEOUT_MS = 12000;
+    const GEO_OPTIONS = { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 };
+
+    const $ = (id) => document.getElementById(id);
+    const statusLabels = { idle: "Idle", assigned: "Assigned", en_route_pickup: "En route · pickup", en_route_hospital: "En route · hospital", completed: "Completed" };
+    let driversBusy = false;
+    let lightBusy = false;
+    let assignmentBusy = false;
+    let pickupBusy = false;
+    let placementBusy = false;
+    let driversVersion = 0;
+    let lightVersion = 0;
+    let lastLight = null;
+    let placementTimer = null;
+    let pageActive = true;
+
+    function feedback(id, text, tone = "error") {
+      const node = $(id);
+      // Avoid repeatedly announcing the same polling failure to screen readers.
+      if (node.textContent !== text) node.textContent = text;
+      node.hidden = !text;
+      node.dataset.tone = tone;
+    }
+
+    function formatTime(value = new Date()) {
+      const date = new Date(value);
+      return Number.isFinite(date.getTime()) ? date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+    }
+
+    function validCoordinates(lat, lon) {
+      return Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+    }
+
+    // One network gateway: every request has the demo key and a finite timeout.
+    async function api(path, body) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      try {
+        const response = await fetch(SERVER_URL.replace(/\/$/, "") + path, {
+          method: body === undefined ? "GET" : "POST",
+          headers: { "X-Demo-Key": DEMO_KEY, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+          body: body === undefined ? undefined : JSON.stringify(body),
+          cache: "no-store", credentials: "omit", signal: controller.signal
+        });
+        if (!response.ok) {
+          if (response.status === 401) throw new Error("The server rejected the demo key. Check the configured key.");
+          if (response.status === 422) throw new Error("The server rejected the input. Check the driver ID and coordinate ranges.");
+          throw new Error(`Server request failed (HTTP ${response.status}).`);
+        }
+        return await response.json();
+      } catch (error) {
+        if (error.name === "AbortError") throw new Error("Couldn't reach server in time. The request timed out.");
+        if (error instanceof TypeError) throw new Error("Couldn't reach server. Check your connection and the server URL.");
+        if (error instanceof SyntaxError) throw new Error("The server returned an unreadable response.");
+        throw error;
+      } finally { clearTimeout(timeout); }
+    }
+
+    // Build server-supplied values as text, never as HTML.
+    function renderDrivers(records) {
+      const fragment = document.createDocumentFragment();
+      for (const driver of records) {
+        const row = document.createElement("tr");
+        const knownStatus = Object.hasOwn(statusLabels, driver.status);
+        row.className = `status-${knownStatus ? driver.status : "idle"}`;
+        const name = document.createElement("td");
+        name.className = "driver-name mono";
+        name.textContent = driver.driver_id;
+        const status = document.createElement("td");
+        const badge = document.createElement("span");
+        badge.className = "status-label";
+        badge.textContent = knownStatus ? statusLabels[driver.status] : "Unknown status";
+        status.append(badge);
+        const location = document.createElement("td");
+        location.className = "coordinates mono";
+        if (validCoordinates(driver.current_lat, driver.current_lon)) {
+          const lat = document.createElement("div");
+          const lon = document.createElement("div");
+          lat.textContent = `${driver.current_lat.toFixed(5)} lat`;
+          lon.textContent = `${driver.current_lon.toFixed(5)} lon`;
+          location.append(lat, lon);
+        } else { location.textContent = "No GPS yet"; }
+        const gpsTime = document.createElement("span");
+        gpsTime.className = "gps-age";
+        if (driver.last_gps_update) {
+          const date = new Date(driver.last_gps_update);
+          gpsTime.textContent = Number.isFinite(date.getTime()) ? `Updated ${date.toLocaleDateString()} ${formatTime(date)}` : "Update time unavailable";
+        } else { gpsTime.textContent = "Awaiting first location"; }
+        location.append(gpsTime);
+        row.append(name, status, location);
+        fragment.append(row);
+      }
+      $("driver-rows").replaceChildren(fragment);
+      $("driver-count").textContent = String(records.length);
+      $("drivers-empty").hidden = records.length > 0;
+      $("drivers-empty").textContent = "No drivers yet. Send the first assignment to get started.";
+      $("drivers-updated").textContent = `Last received ${formatTime()} · Coordinates are the last reported position.`;
+    }
+
+    async function pollDrivers() {
+      if (!pageActive || driversBusy) return;
+      driversBusy = true;
+      const version = driversVersion;
+      try {
+        const records = await api("/drivers");
+        if (version !== driversVersion || !pageActive) return;
+        if (!Array.isArray(records)) throw new Error("The server returned an invalid driver list.");
+        renderDrivers(records);
+        feedback("drivers-error", "");
+      } catch (error) {
+        if (version !== driversVersion || !pageActive) return;
+        feedback("drivers-error", `${error.message} Retrying automatically; displayed drivers may be out of date.`);
+        if ($("driver-count").textContent === "—") $("drivers-empty").textContent = "Driver list unavailable. Waiting to reconnect…";
+      } finally { driversBusy = false; }
+    }
+
+    function renderLight(light) {
+      const labels = { idle: "IDLE", yellow_flash: "YELLOW FLASH", green: "GREEN" };
+      if (!light || !Object.hasOwn(labels, light.state)) throw new Error("The server returned an unknown light state.");
+      const placed = validCoordinates(light.lat, light.lon);
+      lastLight = light;
+      $("light-panel").dataset.state = light.state;
+      $("light-panel").dataset.stale = "false";
+      // Don't restart the animation or live announcement on unchanged polls.
+      if ($("light-state").textContent !== labels[light.state]) $("light-state").textContent = labels[light.state];
+      $("light-freshness").textContent = `Server state · received ${formatTime()}`;
+      $("light-description").textContent = !placed ? "Place the traffic light to begin the demo." : light.state === "idle" ? "Standing by for an approaching ambulance." : light.state === "yellow_flash" ? "Ambulance approaching. Preparing the priority signal." : "Priority signal is green for the ambulance.";
+      $("light-location").textContent = placed ? `${light.lat.toFixed(5)}, ${light.lon.toFixed(5)}` : "Not placed yet";
+      $("light-changed").textContent = light.state_changed_at ? formatTime(light.state_changed_at) : "—";
+    }
+
+    async function pollLight() {
+      if (!pageActive || lightBusy) return;
+      lightBusy = true;
+      const version = lightVersion;
+      try {
+        const light = await api("/traffic-light/state");
+        if (version !== lightVersion || !pageActive) return;
+        renderLight(light);
+        feedback("light-error", "");
+      } catch (error) {
+        if (version !== lightVersion || !pageActive) return;
+        $("light-panel").dataset.stale = "true";
+        $("light-freshness").textContent = lastLight ? "Last known state · connection lost" : "Server connection unavailable";
+        feedback("light-error", `${error.message} Retrying automatically every 2 seconds.`);
+      } finally { lightBusy = false; }
+    }
+
+    function geoUnavailable() {
+      if (!window.isSecureContext) return "Location access requires HTTPS or localhost. You can still enter coordinates manually and monitor dispatch.";
+      if (!navigator.geolocation) return "This browser doesn't support location access. You can still enter coordinates manually and monitor dispatch.";
+      return "";
+    }
+
+    function geoError(error) {
+      if (error.code === 1) return "Location permission denied. Allow location for this site in browser settings, then try again.";
+      if (error.code === 2) return "Location unavailable. Enable location services and try again.";
+      if (error.code === 3) return "Location request timed out. Move where GPS reception is better and try again.";
+      return error.message || "Couldn't get your location. Please try again.";
+    }
+
+    function currentLocation() {
+      return new Promise((resolve, reject) => {
+        const unavailable = geoUnavailable();
+        if (unavailable) { reject(new Error(unavailable)); return; }
+        navigator.geolocation.getCurrentPosition((position) => {
+          const { latitude: lat, longitude: lon } = position.coords;
+          if (!validCoordinates(lat, lon)) { reject(new Error("The device returned invalid coordinates. Please try again.")); return; }
+          resolve({ lat, lon });
+        }, reject, GEO_OPTIONS);
+      });
+    }
+
+    function updateFormButtons() {
+      $("assignment-fields").disabled = assignmentBusy;
+      $("pickup-fields").disabled = pickupBusy;
+      $("send-assignment").disabled = assignmentBusy || pickupBusy;
+      $("use-pickup").disabled = assignmentBusy || pickupBusy || Boolean(geoUnavailable());
+      $("send-assignment").textContent = assignmentBusy ? "Sending assignment…" : "Send emergency assignment →";
+      $("use-pickup").textContent = pickupBusy ? "Finding your location…" : "Use my current location as pickup";
+    }
+
+    async function useCurrentPickup() {
+      if (pickupBusy || assignmentBusy) return;
+      pickupBusy = true;
+      updateFormButtons();
+      feedback("pickup-feedback", "");
+      try {
+        const location = await currentLocation();
+        $("pickup-lat").value = String(location.lat);
+        $("pickup-lon").value = String(location.lon);
+        feedback("assignment-feedback", "");
+        feedback("pickup-feedback", "Pickup filled with your current location.", "success");
+      } catch (error) { feedback("pickup-feedback", geoError(error)); }
+      finally { pickupBusy = false; updateFormButtons(); }
+    }
+
+    async function assignEmergency(event) {
+      event.preventDefault();
+      if (assignmentBusy || pickupBusy || !$("assignment-form").reportValidity()) return;
+      // Read before disabling the form. valueAsNumber avoids treating blanks as 0.
+      const body = {
+        driver_id: $("driver-id").value,
+        pickup_lat: $("pickup-lat").valueAsNumber, pickup_lon: $("pickup-lon").valueAsNumber,
+        hospital_lat: $("hospital-lat").valueAsNumber, hospital_lon: $("hospital-lon").valueAsNumber
+      };
+      if (!validCoordinates(body.pickup_lat, body.pickup_lon) || !validCoordinates(body.hospital_lat, body.hospital_lon)) {
+        feedback("assignment-feedback", "Enter valid numeric coordinates: latitude −90 to 90, longitude −180 to 180.");
+        return;
+      }
+      assignmentBusy = true;
+      updateFormButtons();
+      feedback("assignment-feedback", "");
+      try {
+        await api("/assign", body);
+        driversVersion++; // Discard any list fetched before this successful assignment.
+        feedback("assignment-feedback", `Emergency assigned to ${body.driver_id}. The driver's app will pick it up automatically.`, "success");
+        void pollDrivers();
+      } catch (error) {
+        feedback("assignment-feedback", `${error.message} Check the driver list before retrying; the assignment may have reached the server.`);
+      } finally { assignmentBusy = false; updateFormButtons(); }
+    }
+
+    async function placeTrafficLight() {
+      if (placementBusy) return;
+      placementBusy = true;
+      $("place-light").disabled = true;
+      $("place-light").textContent = "Finding your location…";
+      clearTimeout(placementTimer);
+      feedback("placement-feedback", "");
+      try {
+        const location = await currentLocation();
+        $("place-light").textContent = "Placing traffic light…";
+        const light = await api("/traffic-light/location", location);
+        lightVersion++; // An older in-flight poll must not undo placement on screen.
+        renderLight(light);
+        feedback("light-error", "");
+        feedback("placement-feedback", "Traffic light placed here", "success");
+        placementTimer = setTimeout(() => feedback("placement-feedback", ""), 5000);
+      } catch (error) { feedback("placement-feedback", geoError(error)); }
+      finally {
+        placementBusy = false;
+        $("place-light").disabled = Boolean(geoUnavailable());
+        $("place-light").textContent = "Set traffic light to my location";
+      }
+    }
+
+    $("assignment-form").addEventListener("submit", assignEmergency);
+    $("use-pickup").addEventListener("click", useCurrentPickup);
+    $("place-light").addEventListener("click", placeTrafficLight);
+    // Editing a location or assignment makes its previous success message obsolete.
+    $("assignment-form").addEventListener("input", () => feedback("assignment-feedback", ""));
+    $("pickup-fields").addEventListener("input", () => feedback("pickup-feedback", ""));
+    const unavailable = geoUnavailable();
+    feedback("pickup-geo-note", unavailable);
+    feedback("light-geo-note", unavailable);
+    $("place-light").disabled = Boolean(unavailable);
+    updateFormButtons();
+    void pollDrivers();
+    void pollLight();
+    setInterval(() => void pollDrivers(), DRIVER_POLL_MS);
+    setInterval(() => void pollLight(), LIGHT_POLL_MS);
+    window.addEventListener("online", () => { void pollDrivers(); void pollLight(); });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) { void pollDrivers(); void pollLight(); } });
+    window.addEventListener("pagehide", () => { pageActive = false; });
+    window.addEventListener("pageshow", () => { pageActive = true; void pollDrivers(); void pollLight(); });
+  </script>
+</body>
+</html>

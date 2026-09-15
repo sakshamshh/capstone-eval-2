@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c1519">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Ambulance driver dispatch and location sharing.">
+  <title>Lifeline · Driver</title>
+  <!--
+    Standalone driver app. No dependencies or build step.
+    Serve this folder: python -m http.server 8080
+    Open http://localhost:8080. Start the FastAPI server separately on port 8000.
+    Before phone deployment, edit SERVER_URL below and host this page over HTTPS.
+    localhost on a phone refers to the phone, not your development computer.
+  -->
+  <style>
+    :root {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #edf3f1;
+      background: #0c1519;
+      font-synthesis: none;
+      --muted: #a1b5b5;
+      --line: #2b3c40;
+      --mint: #a7ecd3;
+      --amber: #ffbf79;
+      --red: #ffb0a9;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; min-width: 280px; }
+    button { font: inherit; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+    button:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+    button:disabled { cursor: default; opacity: .55; }
+    button:not(:disabled):active { transform: translateY(1px); }
+    svg { display: block; flex: 0 0 auto; }
+    .app {
+      max-width: 480px; margin: 0 auto; min-height: 100vh; min-height: 100svh;
+      padding: max(24px, env(safe-area-inset-top)) 22px max(24px, env(safe-area-inset-bottom));
+      display: flex; flex-direction: column;
+    }
+    .masthead { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand-icon { width: 38px; height: 38px; display: grid; place-items: center; background: var(--mint); color: #122c25; border-radius: 12px; }
+    .wordmark { font-size: 18px; font-weight: 800; letter-spacing: 2.2px; }
+    .eyebrow { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; color: var(--muted); }
+    .brand .eyebrow { font-size: 9px; margin-top: 4px; letter-spacing: 2.1px; }
+    .demo { border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 1.5px; }
+    .connection {
+      margin-top: 24px; padding: 13px 0; display: flex; align-items: center; gap: 8px;
+      border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+      font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+    .connection[data-state="ok"] .connection-label { color: var(--mint); }
+    .connection[data-state="error"] .connection-label { color: var(--red); }
+    .connection-label { display: flex; align-items: center; gap: 7px; }
+    .request-time { margin-left: auto; white-space: nowrap; }
+    main { flex: 1; padding-top: 25px; }
+    .driver-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 20px; }
+    .driver-id { font-size: 13px; font-weight: 600; color: #d6e1de; }
+    .badge { color: var(--mint); font-size: 10px; font-weight: 750; letter-spacing: 1.1px; text-transform: uppercase; display: flex; align-items: center; gap: 6px; }
+    .badge[data-tone="warm"] { color: var(--amber); }
+    .card { background: #142126; border: 1px solid var(--line); border-radius: 22px; overflow: hidden; }
+    .rest { text-align: center; padding: 31px 20px 30px; }
+    .rest-art { width: 112px; height: 112px; border-radius: 50%; background: #1b3433; color: var(--mint); display: grid; place-items: center; margin: 0 auto 24px; position: relative; }
+    .rest-art::after { content: ""; position: absolute; inset: -7px; border: 1px solid #284541; border-radius: 50%; }
+    .rest h1 { margin: 8px 0 12px; font-size: clamp(29px, 8vw, 36px); letter-spacing: -1.1px; line-height: 1.15; }
+    .rest p { color: var(--muted); font-size: 16px; line-height: 1.65; margin: 0 auto; max-width: 290px; }
+    .rest .rest-kicker { color: var(--mint); font-size: 10px; letter-spacing: 2px; font-weight: 700; }
+    .waiting { display: inline-flex; align-items: center; gap: 8px; margin-top: 24px; color: var(--muted); font-size: 12px; }
+    .waiting .dot { width: 5px; height: 5px; }
+    .mission-heading { padding: 23px 22px; background: #1a3330; border-bottom: 1px solid #35524a; }
+    .mission-heading[data-tone="warm"] { background: #38291e; border-color: #66503a; }
+    .mission-heading .eyebrow { color: var(--mint); display: flex; gap: 8px; align-items: center; }
+    .mission-heading[data-tone="warm"] .eyebrow { color: var(--amber); }
+    .mission-heading h1 { font-size: 29px; line-height: 1.16; margin: 12px 0 8px; letter-spacing: -.8px; }
+    .mission-heading p:last-child { font-size: 14px; line-height: 1.55; margin: 0; color: #c0cdca; }
+    .mission-body { padding: 22px; }
+    .distance { padding-bottom: 23px; margin-bottom: 22px; border-bottom: 1px solid var(--line); }
+    .distance-value { display: block; font-size: 42px; font-weight: 650; letter-spacing: -1.6px; line-height: 1.2; margin: 7px 0; }
+    .distance-note { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
+    .route { margin: 0 0 24px; padding: 0; list-style: none; }
+    .route li { position: relative; padding-left: 28px; }
+    .route li:first-child { padding-bottom: 25px; }
+    .route li:first-child::after { content: ""; position: absolute; top: 16px; bottom: 4px; left: 5px; width: 1px; background: #476057; }
+    .route li::before { content: ""; position: absolute; left: 0; top: 4px; width: 11px; height: 11px; border: 2px solid var(--mint); border-radius: 50%; }
+    .route li:last-child::before { border-radius: 2px; background: var(--mint); }
+    .stop-label { font-size: 12px; font-weight: 600; color: var(--muted); margin: 0 0 7px; }
+    .coordinates { font-size: 16px; font-weight: 550; font-variant-numeric: tabular-nums; margin: 0; overflow-wrap: anywhere; }
+    .button { width: 100%; min-height: 60px; border-radius: 12px; border: 1px solid transparent; padding: 14px 16px; font-size: 16px; font-weight: 700; line-height: 1.4; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; }
+    .primary { color: #112a24; background: var(--mint); }
+    .primary[data-tone="warm"] { background: var(--amber); color: #302316; }
+    .secondary { color: #e5efec; background: #1b2b2f; border-color: #3b5356; }
+    .gps-panel { margin: 14px 0 0; padding: 16px; border: 1px solid var(--line); border-radius: 14px; }
+    .gps-heading { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; color: var(--mint); }
+    .gps-panel[data-error="true"] .gps-heading { color: var(--amber); }
+    .gps-panel p { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .gps-panel .button { margin-top: 12px; min-height: 56px; }
+    .message { margin: 14px 0 0; color: var(--red); font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+    .message[data-tone="success"] { color: var(--mint); }
+    .sync-note { color: var(--amber); margin-bottom: 16px; }
+    footer { margin-top: 30px; }
+    .utility-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .utility-heading .eyebrow { font-size: 10px; }
+    .utility-hint { margin: 11px 6px 0; font-size: 12px; line-height: 1.6; text-align: center; color: var(--muted); }
+    .footer-note { display: flex; justify-content: center; gap: 7px; margin: 26px 0 0; font-size: 10px; color: #8ea4a4; letter-spacing: 1.2px; text-transform: uppercase; }
+    noscript p { padding: 18px; background: #38291e; color: var(--amber); }
+    @media (min-width: 600px) {
+      body { background: radial-gradient(ellipse at 50% 20%, #1a2d30, #0c1519 65%); }
+      .app { margin: 28px auto; min-height: calc(100svh - 56px); background: #0c1519; border: 1px solid var(--line); border-radius: 28px; padding: 28px; }
+    }
+    @media (max-width: 350px) {
+      .app { padding-left: 16px; padding-right: 16px; }
+      .mission-body, .mission-heading { padding: 18px; }
+      .connection { font-size: 11px; }
+      .button { padding-left: 12px; padding-right: 12px; font-size: 15px; }
+    }
+    @media (prefers-reduced-motion: reduce) { button:not(:disabled):active { transform: none; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="masthead">
+        <div class="brand">
+          <span class="brand-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3Z" fill="currentColor"/></svg></span>
+          <div><div class="wordmark">LIFELINE</div><p class="eyebrow">Driver console</p></div>
+        </div>
+        <span class="demo">DEMO</span>
+      </div>
+      <div class="connection" id="connection" data-state="pending" role="status" aria-live="polite" aria-atomic="true">
+        <span class="connection-label"><span class="dot" aria-hidden="true"></span><span id="connection-label">Connecting to dispatch</span></span>
+        <span class="request-time" id="request-time">—</span>
+      </div>
+    </header>
+
+    <main>
+      <noscript><p>Enable JavaScript to view assignments and share your location.</p></noscript>
+      <div class="driver-row"><span class="driver-id" id="driver-label">ambulance-1</span><span class="badge" id="status-badge"><span class="dot" aria-hidden="true"></span><span id="badge-label">Standby</span></span></div>
+      <p class="message sync-note" id="sync-note" role="status" hidden></p>
+
+      <section class="card rest" id="rest-screen" aria-labelledby="rest-title">
+        <div class="rest-art" aria-hidden="true">
+          <svg width="74" height="58" viewBox="0 0 80 62" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 45V22a4 4 0 0 1 4-4h35v27M47 28h12l12 12v9H63M8 49h9m12 0h22M52 31v10h16M24 25v14m-7-7h14M24 11h12"/>
+            <circle cx="23" cy="49" r="6"/><circle cx="57" cy="49" r="6"/><path d="M9 57h62" stroke-opacity=".3"/>
+          </svg>
+        </div>
+        <p class="rest-kicker" id="rest-kicker">TAKE A BREATHER</p>
+        <h1 id="rest-title">You're off duty</h1>
+        <p id="rest-description">Your next assignment will appear here. We'll keep you in sync with dispatch.</p>
+        <div class="waiting"><span class="dot" aria-hidden="true"></span><span id="rest-note">Checking for assignments every 3s</span></div>
+      </section>
+
+      <section class="card" id="mission-screen" aria-labelledby="mission-title" hidden>
+        <div class="mission-heading" id="mission-heading" data-tone="warm">
+          <p class="eyebrow"><span class="dot" aria-hidden="true"></span><span id="mission-kicker">Dispatch alert</span></p>
+          <h1 id="mission-title">New emergency assigned</h1>
+          <p id="mission-description">Your route is ready. Start when you're ready to leave.</p>
+        </div>
+        <div class="mission-body">
+          <div class="distance" id="distance-panel" hidden>
+            <p class="eyebrow" id="distance-label">Distance to pickup</p>
+            <output class="distance-value" id="distance-value" aria-label="Distance to next stop">—</output>
+            <p class="distance-note" id="distance-note">Waiting for your location · straight-line distance</p>
+          </div>
+          <ol class="route" aria-label="Emergency route">
+            <li><p class="stop-label">01 / Pickup</p><p class="coordinates" id="pickup-coordinates">Not provided</p></li>
+            <li><p class="stop-label">02 / Hospital</p><p class="coordinates" id="hospital-coordinates">Not provided</p></li>
+          </ol>
+          <button class="button primary" id="mission-action" type="button" data-tone="warm"><span id="action-label">Start driving to pickup</span><span aria-hidden="true">→</span></button>
+          <p class="message" id="action-message" role="alert" hidden></p>
+        </div>
+      </section>
+
+      <div class="gps-panel" id="gps-panel" hidden>
+        <div class="gps-heading"><span class="dot" aria-hidden="true"></span><span id="gps-heading">Location sharing</span></div>
+        <p id="gps-message" role="status">Waiting for a GPS signal.</p>
+        <button class="button secondary" id="retry-gps" type="button" hidden>Retry location access</button>
+      </div>
+      <p class="message" id="geo-unavailable" role="status" hidden></p>
+    </main>
+
+    <footer>
+      <div class="utility-heading"><svg aria-hidden="true" width="16" height="20" viewBox="0 0 16 20" fill="none" stroke="currentColor"><rect x="4" y="1" width="8" height="15" rx="3"/><circle cx="8" cy="5" r="1" fill="currentColor"/><circle cx="8" cy="9" r="1"/><circle cx="8" cy="13" r="1"/><path d="M8 16v4"/></svg><p class="eyebrow">Traffic light setup</p></div>
+      <button class="button secondary" id="place-light" type="button">Set traffic light to my location</button>
+      <p class="utility-hint">Stand next to the physical light, then tap to place it.</p>
+      <p class="message" id="placement-message" role="status" aria-live="polite" hidden></p>
+      <p class="footer-note">One ambulance <span aria-hidden="true">·</span> A clearer way through</p>
+    </footer>
+  </div>
+
+  <script>
+    const SERVER_URL = "http://localhost:8000"; // Replace with your Render HTTPS URL.
+    const DRIVER_ID = "ambulance-1";
+    const DEMO_KEY = "traffic-demo-2026";
+    const POLL_MS = 3000;
+    const GPS_INTERVAL_MS = 2000;
+    const REQUEST_TIMEOUT_MS = 12000;
+    const GEO_OPTIONS = { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 };
+
+    const $ = (id) => document.getElementById(id);
+    const driverPath = `/drivers/${encodeURIComponent(DRIVER_ID)}`;
+    let driver = null;
+    let localPosition = null;
+    let statusBusy = false;
+    let pollBusy = false;
+    let statusVersion = 0;
+    let watchId = null;
+    let watchGeneration = 0;
+    let gpsBlocked = false;
+    let gpsQueue = null;
+    let gpsTimer = null;
+    let gpsBusy = false;
+    let lastGpsSentAt = -Infinity;
+    let placementBusy = false;
+    let confirmationTimer = null;
+    let pageActive = true;
+
+    const isDriving = () => ["en_route_pickup", "en_route_hospital"].includes(driver?.status);
+    const coordinatesValid = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+    const timeLabel = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+    function message(id, text, tone = "error") {
+      const element = $(id);
+      element.textContent = text;
+      element.hidden = !text;
+      element.dataset.tone = tone;
+    }
+
+    function connectionState(ok, detail = "") {
+      $("connection").dataset.state = ok ? "ok" : "error";
+      $("connection-label").textContent = ok ? "Last request succeeded" : `Last request failed${detail ? ` · ${detail}` : ""}`;
+      $("request-time").textContent = timeLabel();
+    }
+
+    // All network access goes through this one guarded, timed-out fetch call.
+    async function api(path, body) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      try {
+        const response = await fetch(SERVER_URL.replace(/\/$/, "") + path, {
+          method: body === undefined ? "GET" : "POST",
+          headers: { "X-Demo-Key": DEMO_KEY, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+          body: body === undefined ? undefined : JSON.stringify(body),
+          signal: controller.signal,
+          cache: "no-store",
+          credentials: "omit"
+        });
+        if (!response.ok) {
+          const error = new Error(response.status === 401 ? "The server rejected the demo key." : `Server returned HTTP ${response.status}.`);
+          error.status = response.status;
+          throw error;
+        }
+        const data = await response.json();
+        connectionState(true);
+        return data;
+      } catch (error) {
+        connectionState(false, error.status ? String(error.status) : error.name === "AbortError" ? "timeout" : "offline");
+        if (error.name === "AbortError") throw new Error("The server took too long to respond. Please try again.");
+        if (error instanceof TypeError) throw new Error("Cannot reach dispatch. Check your connection and server URL; retries continue automatically.");
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    function geoUnavailableReason() {
+      if (!window.isSecureContext) return "Location needs a secure connection. Open this app over HTTPS (or localhost on this computer). You can still view assignments.";
+      if (!navigator.geolocation) return "This browser doesn't support location access. You can still view assignments; use a location-enabled browser to share GPS.";
+      return "";
+    }
+
+    function geoErrorText(error) {
+      if (error.code === 1) return "Location access is blocked. Allow location for this site in your browser settings, then tap retry.";
+      if (error.code === 2) return "Your location is unavailable. Turn on location services and move where you have a clearer GPS signal.";
+      if (error.code === 3) return "GPS took too long to respond. Move where you have a clearer signal and try again.";
+      return error.message || "Couldn't get your location. Please try again.";
+    }
+
+    function setGpsMessage(title, text, error = false) {
+      $("gps-heading").textContent = title;
+      $("gps-message").textContent = text;
+      $("gps-panel").dataset.error = String(error);
+      $("retry-gps").hidden = !error || Boolean(geoUnavailableReason());
+    }
+
+    function stopGps() {
+      watchGeneration++;
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+      clearTimeout(gpsTimer);
+      gpsTimer = null;
+      gpsQueue = null;
+    }
+
+    function startGps(force = false) {
+      if (!pageActive || !isDriving()) return;
+      if (!force && (watchId !== null || gpsBlocked)) return;
+      stopGps();
+      gpsBlocked = false;
+      const unavailable = geoUnavailableReason();
+      if (unavailable) {
+        gpsBlocked = true;
+        setGpsMessage("Location unavailable", unavailable, true);
+        return;
+      }
+      const generation = watchGeneration;
+      setGpsMessage("Finding your location", "Allow location access to share your position with dispatch.");
+      try {
+        watchId = navigator.geolocation.watchPosition((position) => {
+          if (generation !== watchGeneration || !isDriving()) return;
+          const { latitude: lat, longitude: lon, accuracy } = position.coords;
+          if (!coordinatesValid(lat, lon)) {
+            setGpsMessage("Waiting for valid GPS", "Your device returned an invalid location. Waiting for its next update.", true);
+            return;
+          }
+          localPosition = { lat, lon, accuracy, timestamp: position.timestamp };
+          gpsQueue = { lat, lon };
+          setGpsMessage("GPS signal received", "Sending your latest location to dispatch.");
+          updateDistance();
+          scheduleGps();
+        }, (error) => {
+          if (generation !== watchGeneration) return;
+          if (error.code === 1) {
+            stopGps();
+            gpsBlocked = true; // Polling must not continually reopen permission prompts.
+          }
+          setGpsMessage("Location needs attention", geoErrorText(error), true);
+        }, GEO_OPTIONS);
+      } catch (error) {
+        gpsBlocked = true;
+        setGpsMessage("Location needs attention", geoErrorText(error), true);
+      }
+    }
+
+    // Keep only the newest sample; serialize sends and enforce 2s between starts.
+    // A failed send is retried with the latest sample, even if GPS goes quiet.
+    function scheduleGps() {
+      if (!pageActive || !isDriving() || gpsBlocked || !gpsQueue || gpsBusy || gpsTimer !== null || statusBusy) return;
+      const delay = Math.max(0, GPS_INTERVAL_MS - (performance.now() - lastGpsSentAt));
+      gpsTimer = setTimeout(sendGps, delay);
+    }
+
+    async function sendGps() {
+      gpsTimer = null;
+      if (!pageActive || !isDriving() || gpsBlocked || !gpsQueue || gpsBusy || statusBusy) return;
+      const sample = gpsQueue;
+      const generation = watchGeneration;
+      gpsQueue = null;
+      gpsBusy = true;
+      lastGpsSentAt = performance.now();
+      try {
+        await api(`${driverPath}/gps`, sample);
+        // GPS responses never overwrite status; a newer status/poll may already exist.
+        if (generation === watchGeneration) setGpsMessage("Location sharing is on", `Last sent at ${timeLabel()}. Keep this page open while en route.`);
+      } catch (error) {
+        if (generation === watchGeneration && isDriving()) {
+          gpsQueue = gpsQueue || sample;
+          setGpsMessage("Location not sent", `${error.message} Your latest position will be retried.`, true);
+        }
+      } finally {
+        gpsBusy = false;
+        scheduleGps();
+      }
+    }
+
+    function distanceMeters(lat1, lon1, lat2, lon2) {
+      const rad = (degrees) => degrees * Math.PI / 180;
+      const a = Math.sin(rad(lat2 - lat1) / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(rad(lon2 - lon1) / 2) ** 2;
+      return 6371000 * 2 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, a))));
+    }
+
+    function updateDistance() {
+      if (!isDriving()) return;
+      const hospital = driver.status === "en_route_hospital";
+      const targetLat = hospital ? driver.assignment?.hospital_lat : driver.assignment?.pickup_lat;
+      const targetLon = hospital ? driver.assignment?.hospital_lon : driver.assignment?.pickup_lon;
+      $("distance-label").textContent = hospital ? "Distance to hospital" : "Distance to pickup";
+      const serverTimestamp = Date.parse(driver.last_gps_update || "");
+      const useLocal = localPosition && (!Number.isFinite(serverTimestamp) || localPosition.timestamp >= serverTimestamp);
+      const lat = useLocal ? localPosition.lat : driver.current_lat;
+      const lon = useLocal ? localPosition.lon : driver.current_lon;
+      const timestamp = useLocal ? localPosition.timestamp : serverTimestamp;
+      if (!coordinatesValid(targetLat, targetLon)) {
+        $("distance-value").textContent = "—";
+        $("distance-note").textContent = "Waiting for destination coordinates from dispatch.";
+      } else if (!coordinatesValid(lat, lon)) {
+        $("distance-value").textContent = "—";
+        $("distance-note").textContent = "Waiting for your location · straight-line distance";
+      } else {
+        const distance = distanceMeters(lat, lon, targetLat, targetLon);
+        $("distance-value").textContent = distance < 1000 ? `${Math.round(distance)} m` : `${(distance / 1000).toFixed(1)} km`;
+        const stale = !Number.isFinite(timestamp) || Date.now() - timestamp > 15000;
+        $("distance-note").textContent = `${stale ? "Last known location" : "Latest location"} · straight-line distance`;
+      }
+    }
+
+    function renderDriver() {
+      const status = driver?.status || "idle";
+      const mission = ["assigned", "en_route_pickup", "en_route_hospital"].includes(status);
+      const assigned = status === "assigned";
+      const hospital = status === "en_route_hospital";
+      const completed = status === "completed";
+      $("rest-screen").hidden = mission;
+      $("mission-screen").hidden = !mission;
+      $("gps-panel").hidden = !isDriving();
+      $("distance-panel").hidden = !isDriving();
+      $("status-badge").dataset.tone = assigned ? "warm" : "calm";
+      $("badge-label").textContent = assigned ? "New assignment" : isDriving() ? "On a mission" : completed ? "Completed" : "Standby";
+      $("rest-kicker").textContent = completed ? "MISSION COMPLETE" : "TAKE A BREATHER";
+      $("rest-title").textContent = completed ? "A job well done" : "You're off duty";
+      $("rest-description").textContent = completed ? "Trip completed. Location sharing is off. Dispatch will send your next assignment here." : "Your next assignment will appear here. We'll keep you in sync with dispatch.";
+      $("mission-heading").dataset.tone = assigned ? "warm" : "calm";
+      $("mission-action").dataset.tone = assigned ? "warm" : "calm";
+      $("mission-kicker").textContent = assigned ? "Dispatch alert" : hospital ? "Leg 02 / Patient on board" : "Leg 01 / Responding";
+      $("mission-title").textContent = assigned ? "New emergency assigned" : hospital ? "En route to hospital" : "En route to pickup";
+      $("mission-description").textContent = assigned ? "Your route is ready. Start when you're ready to leave." : hospital ? "Bring your patient to the hospital. Mark the trip complete when you arrive." : "Head to the pickup point. Confirm below once your patient is on board.";
+      const a = driver?.assignment;
+      const format = (lat, lon) => coordinatesValid(lat, lon) ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : "Not provided by dispatch";
+      $("pickup-coordinates").textContent = format(a?.pickup_lat, a?.pickup_lon);
+      $("hospital-coordinates").textContent = format(a?.hospital_lat, a?.hospital_lon);
+      $("action-label").textContent = statusBusy ? "Updating dispatch…" : assigned ? "Start driving to pickup" : hospital ? "Mark completed" : "Picked up patient · To hospital";
+      $("mission-action").disabled = statusBusy;
+      updateDistance();
+    }
+
+    function applyDriver(record) {
+      const previousStatus = driver?.status;
+      driver = record;
+      if (driver?.status !== previousStatus) message("action-message", "");
+      renderDriver();
+      if (isDriving()) startGps();
+      else { stopGps(); gpsBlocked = false; localPosition = null; }
+    }
+
+    async function pollDriver() {
+      if (!pageActive || pollBusy || statusBusy) return;
+      pollBusy = true;
+      const version = statusVersion;
+      try {
+        const record = await api(driverPath);
+        if (version !== statusVersion || statusBusy || !pageActive) return;
+        applyDriver(record);
+        message("sync-note", "");
+      } catch (error) {
+        if (version !== statusVersion || statusBusy || !pageActive) return;
+        if (error.status === 404) {
+          applyDriver(null);
+          message("sync-note", "Waiting for HQ to register this driver with a first assignment.");
+        } else {
+          message("sync-note", `Status sync paused. ${error.message} Checking again every 3 seconds.`);
+        }
+      } finally { pollBusy = false; }
+    }
+
+    async function changeStatus() {
+      if (statusBusy) return;
+      const nextStatus = { assigned: "en_route_pickup", en_route_pickup: "en_route_hospital", en_route_hospital: "completed" }[driver?.status];
+      if (!nextStatus) return;
+      statusBusy = true;
+      statusVersion++; // Ignore any poll that started before this action.
+      renderDriver();
+      message("action-message", "");
+      try {
+        const record = await api(`${driverPath}/status`, { status: nextStatus });
+        applyDriver(record);
+        message("sync-note", "");
+      } catch (error) {
+        message("action-message", `${error.message} The next status check will confirm whether the change reached dispatch.`);
+      } finally {
+        statusBusy = false;
+        statusVersion++;
+        renderDriver();
+        scheduleGps();
+      }
+    }
+
+    function getCurrentPosition() {
+      return new Promise((resolve, reject) => {
+        const unavailable = geoUnavailableReason();
+        if (unavailable) { reject(new Error(unavailable)); return; }
+        // Explicit one-time reading; never starts a GPS watch for placement.
+        navigator.geolocation.getCurrentPosition(resolve, reject, GEO_OPTIONS);
+      });
+    }
+
+    async function placeTrafficLight() {
+      if (placementBusy) return;
+      placementBusy = true;
+      $("place-light").disabled = true;
+      $("place-light").textContent = "Finding your location…";
+      clearTimeout(confirmationTimer);
+      message("placement-message", "");
+      try {
+        const position = await getCurrentPosition();
+        const { latitude: lat, longitude: lon } = position.coords;
+        if (!coordinatesValid(lat, lon)) throw new Error("Your device returned an invalid location. Please try again.");
+        $("place-light").textContent = "Placing traffic light…";
+        await api("/traffic-light/location", { lat, lon });
+        message("placement-message", "Traffic light placed here", "success");
+        confirmationTimer = setTimeout(() => message("placement-message", ""), 5000);
+      } catch (error) {
+        message("placement-message", `${geoErrorText(error)} Tap the placement button to retry.`);
+      } finally {
+        placementBusy = false;
+        $("place-light").disabled = Boolean(geoUnavailableReason());
+        $("place-light").textContent = "Set traffic light to my location";
+      }
+    }
+
+    $("driver-label").textContent = DRIVER_ID;
+    $("mission-action").addEventListener("click", changeStatus);
+    $("place-light").addEventListener("click", placeTrafficLight);
+    $("retry-gps").addEventListener("click", () => startGps(true));
+    const unavailable = geoUnavailableReason();
+    message("geo-unavailable", unavailable);
+    $("place-light").disabled = Boolean(unavailable);
+    renderDriver();
+    void pollDriver();
+    setInterval(() => { updateDistance(); void pollDriver(); }, POLL_MS);
+    window.addEventListener("online", () => { void pollDriver(); scheduleGps(); });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) { void pollDriver(); startGps(); scheduleGps(); }
+    });
+    window.addEventListener("pagehide", () => { pageActive = false; stopGps(); });
+    window.addEventListener("pageshow", () => { pageActive = true; void pollDriver(); startGps(); });
+  </script>
+</body>
+</html>

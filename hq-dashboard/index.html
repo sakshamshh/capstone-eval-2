@@ -132,6 +132,8 @@
     .map-tools [aria-pressed="true"] { box-shadow: inset 0 0 0 2px currentColor; }
     #set-pickup { color: #b42332; }
     #set-hospital { color: #175ca8; }
+    #set-traffic-light { color: #374151; }
+    .traffic-light-key { background: #374151; }
     .stop-coordinate { font: 12px/1.7 var(--mono); margin: 4px 0 14px; overflow-wrap: anywhere; }
     .map-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 10px 0; font-size: 11px; line-height: 1.5; }
     .map-key { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; background: #64748b; }
@@ -206,15 +208,17 @@
             <p class="field-help" id="driver-help">Use the ID shown in the driver's phone app.</p>
             <div class="stop-fields">
               <h3 class="stop-title">Choose emergency stops</h3>
-              <p class="field-help">Pan or zoom to your area, choose a stop, then click the map. Starts in New Delhi.</p>
-              <div class="map-tools" role="group" aria-label="Stop to place on the map">
+              <p class="field-help">Choose a mode, then click the map. Traffic light clicks save immediately. Starts in New Delhi.</p>
+              <div class="map-tools" role="group" aria-label="Location to place on the map">
                 <button class="button" id="set-pickup" type="button" aria-pressed="true">Set pickup</button>
                 <button class="button" id="set-hospital" type="button" aria-pressed="false">Set hospital</button>
+                <button class="button" id="set-traffic-light" type="button" aria-pressed="false">Place traffic light</button>
               </div>
               <p class="field-help" id="map-selection-hint" role="status">Click the map to set the pickup.</p>
-              <div class="map-canvas" id="assignment-map" aria-label="Click to choose pickup or hospital"></div>
+              <div class="map-canvas" id="assignment-map" aria-label="Click to choose pickup, hospital, or traffic light"></div>
               <p class="map-note" id="assignment-map-note" role="status">Loading map…</p>
-              <div class="map-legend"><span><i class="map-key pickup-key" aria-hidden="true"></i>Pickup</span><span><i class="map-key hospital-key" aria-hidden="true"></i>Hospital</span></div>
+              <p class="feedback" id="map-placement-feedback" role="status" hidden></p>
+              <div class="map-legend"><span><i class="map-key pickup-key" aria-hidden="true"></i>Pickup</span><span><i class="map-key hospital-key" aria-hidden="true"></i>Hospital</span><span><i class="map-key traffic-light-key" aria-hidden="true"></i>Traffic light</span></div>
               <p class="stop-coordinate" id="pickup-coordinates" aria-live="polite">Pickup: not selected</p>
               <p class="stop-coordinate" id="hospital-coordinates" aria-live="polite">Hospital: not selected</p>
               <button class="button location-shortcut" id="use-pickup" type="button">Use my location for pickup</button>
@@ -263,6 +267,7 @@
     let liveDrivers = [];
     let liveDriverId = "";
     let liveMarkerKeys = "";
+    let mapPlacementTimer = null;
 
     // Optional maps load independently of the application's request/GPS startup.
     function loadMapLibrary() {
@@ -345,10 +350,47 @@
 
 
     function setStopMode(stop) {
+      if (!["pickup", "hospital", "traffic-light"].includes(stop)) return;
       selectedStop = stop;
       $("set-pickup").setAttribute("aria-pressed", String(stop === "pickup"));
       $("set-hospital").setAttribute("aria-pressed", String(stop === "hospital"));
-      $("map-selection-hint").textContent = `Click the map to set the ${stop}.`;
+      $("set-traffic-light").setAttribute("aria-pressed", String(stop === "traffic-light"));
+      $("map-selection-hint").textContent = stop === "traffic-light"
+        ? "Click the map to place the traffic light immediately."
+        : `Click the map to set the ${stop}.`;
+    }
+
+    function updateAssignmentLightMarker() {
+      const placed = lastLight && validCoordinates(lastLight.lat, lastLight.lon);
+      assignmentMap?.marker("traffic-light", placed ? [lastLight.lat, lastLight.lon] : null,
+        "#374151", "Traffic light · confirmed position");
+    }
+
+    async function placeTrafficLightOnMap(location) {
+      // Share the GPS placement lock so the two methods cannot race each other.
+      if (placementBusy) {
+        feedback("map-placement-feedback", "A traffic light placement is already in progress. Please wait.", "info");
+        return;
+      }
+      placementBusy = true;
+      $("place-light").disabled = true;
+      clearTimeout(mapPlacementTimer);
+      feedback("map-placement-feedback", "Placing traffic light…", "info");
+      try {
+        const light = await api("/traffic-light/location", location);
+        lightVersion++; // Discard polls started before this confirmed placement.
+        // Both maps use the server response. No optimistic marker move to revert.
+        renderLight(light);
+        liveMap?.fit();
+        feedback("light-error", "");
+        feedback("map-placement-feedback", "Traffic light placed here", "success");
+        mapPlacementTimer = setTimeout(() => feedback("map-placement-feedback", ""), 5000);
+      } catch (error) {
+        feedback("map-placement-feedback", `Placement wasn't confirmed. ${error.message} The last confirmed marker is retained. Click the map to retry.`);
+      } finally {
+        placementBusy = false;
+        $("place-light").disabled = Boolean(geoUnavailable());
+      }
     }
 
     function selectStop(stop, location) {
@@ -390,12 +432,17 @@
           }
           const point = event.latlng.wrap();
           if (!validCoordinates(point.lat, point.lng)) return;
+          if (selectedStop === "traffic-light") {
+            void placeTrafficLightOnMap({ lat: point.lat, lon: point.lng });
+            return;
+          }
           selectStop(selectedStop, { lat: point.lat, lon: point.lng });
           feedback("pickup-feedback", "");
         }));
         if (pickupLocation) selectStop("pickup", pickupLocation);
         if (hospitalLocation) selectStop("hospital", hospitalLocation);
         if (pickupLocation || hospitalLocation) assignmentMap?.fit();
+        updateAssignmentLightMarker();
         updateLiveMap();
       } catch (error) {
         feedback("assignment-map-note", "Map unavailable. Check your internet connection and reload the page.");
@@ -518,6 +565,7 @@
       $("light-description").textContent = !placed ? "Place the traffic light to begin the demo." : light.state === "idle" ? "Standing by for an approaching ambulance." : light.state === "yellow_flash" ? "Ambulance approaching. Preparing the priority signal." : "Priority signal is green for the ambulance.";
       $("light-location").textContent = placed ? `${light.lat.toFixed(5)}, ${light.lon.toFixed(5)}` : "Not placed yet";
       $("light-changed").textContent = light.state_changed_at ? formatTime(light.state_changed_at) : "—";
+      updateAssignmentLightMarker();
       updateLiveMap();
     }
 
@@ -567,6 +615,7 @@
       $("assignment-fields").disabled = assignmentBusy;
       $("set-pickup").disabled = assignmentBusy || pickupBusy || !assignmentMap;
       $("set-hospital").disabled = assignmentBusy || pickupBusy || !assignmentMap;
+      $("set-traffic-light").disabled = assignmentBusy || pickupBusy || !assignmentMap;
       $("send-assignment").disabled = assignmentBusy || pickupBusy;
       $("use-pickup").disabled = assignmentBusy || pickupBusy || Boolean(geoUnavailable());
       $("send-assignment").textContent = assignmentBusy ? "Sending assignment…" : "Send emergency assignment →";
@@ -645,6 +694,7 @@
     $("assignment-form").addEventListener("input", () => feedback("assignment-feedback", ""));
     $("set-pickup").addEventListener("click", () => setStopMode("pickup"));
     $("set-hospital").addEventListener("click", () => setStopMode("hospital"));
+    $("set-traffic-light").addEventListener("click", () => setStopMode("traffic-light"));
     $("driver-id").addEventListener("input", () => updateLiveMap());
     $("fit-live-map").addEventListener("click", () => liveMap?.fit());
     const unavailable = geoUnavailable();

@@ -31,6 +31,7 @@ def client():
     ("POST", "/drivers/a/gps"), ("POST", "/drivers/a/status"),
     ("POST", "/assign"), ("GET", "/drivers/a"), ("GET", "/drivers"),
     ("POST", "/traffic-light/location"), ("GET", "/traffic-light/state"),
+    ("POST", "/traffic-light/trigger"),
 ])
 def test_all_business_endpoints_require_key(client, method, path):
     client.headers.pop("X-Demo-Key")
@@ -188,3 +189,63 @@ def test_background_logs_failure_and_continues(monkeypatch):
     asyncio.run(run())
     assert evaluator.call_count == 2
     log.assert_called_once()
+
+
+def test_manual_trigger_survives_gps_is_idempotent_and_resumes(monkeypatch):
+    now = utc_now()
+    monkeypatch.setattr(main, "utc_now", lambda: now)
+    app = create_app()
+    repo = app.state.repository
+    with TestClient(app, headers=KEY) as client:
+        client.post("/traffic-light/location", json={"lat": 40, "lon": -74})
+        client.post("/assign", json=ASSIGNMENT)
+        client.post("/drivers/ambulance-1/status", json={"status": "en_route_pickup"})
+        triggered = client.post("/traffic-light/trigger").json()
+        assert triggered["state"] == "yellow_flash"
+        assert set(triggered) == {"lat", "lon", "state", "state_changed_at"}
+        client.post("/drivers/ambulance-1/gps", json={"lat": 0, "lon": 0})
+        client.post("/drivers/ambulance-1/status", json={"status": "completed"})
+        now += timedelta(seconds=2)
+        assert client.post("/traffic-light/trigger").json() == triggered
+        assert client.get("/traffic-light/state").json()["state"] == "yellow_flash"
+        now += timedelta(seconds=2.5)
+        main.reevaluate_latest_driver(repo, now)
+        assert client.get("/traffic-light/state").json()["state"] == "green"
+        now += timedelta(seconds=9)
+        main.reevaluate_latest_driver(repo, now)
+        assert repo.get_light().state == "green"
+        now += timedelta(seconds=1)
+        main.reevaluate_latest_driver(repo, now)
+        assert repo.get_light().state == "idle"
+        assert not repo.get_light().manual_override
+        client.post("/drivers/ambulance-1/status", json={"status": "en_route_pickup"})
+        client.post("/drivers/ambulance-1/gps", json={"lat": 40, "lon": -74})
+        assert repo.get_light().state == "yellow_flash"
+
+
+def test_relocation_cancels_manual_trigger(client):
+    client.post("/traffic-light/trigger")
+    moved = client.post("/traffic-light/location", json={"lat": 1, "lon": 2}).json()
+    assert moved["state"] == "idle"
+    assert not client.app.state.repository.get_light().manual_override
+
+
+def test_manual_trigger_background_sequence_without_driver_or_placement(monkeypatch):
+    monkeypatch.setattr(main, "BACKGROUND_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(main, "MANUAL_GREEN_DURATION_SECONDS", 0.1)
+    app = create_app()
+    light = app.state.repository.get_light()
+    light.yellow_flash_duration_seconds = 0.1
+    app.state.repository.save_light(light)
+    with TestClient(app, headers=KEY) as client:
+        assert client.post("/traffic-light/trigger").json()["state"] == "yellow_flash"
+        observed = []
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            state = client.get("/traffic-light/state").json()["state"]
+            if not observed or observed[-1] != state:
+                observed.append(state)
+            if state == "idle":
+                break
+            time.sleep(0.01)
+        assert observed == ["yellow_flash", "green", "idle"]

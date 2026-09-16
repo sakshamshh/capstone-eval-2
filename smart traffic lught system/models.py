@@ -10,6 +10,7 @@ from logic import LightState
 # Change these constants to tune the physical demo.
 TRIGGER_RADIUS_METERS = 50.0
 YELLOW_FLASH_DURATION_SECONDS = 4.5
+MANUAL_GREEN_DURATION_SECONDS = 10.0
 
 Latitude = Annotated[float, Field(strict=True, ge=-90, le=90, allow_inf_nan=False)]
 Longitude = Annotated[float, Field(strict=True, ge=-180, le=180, allow_inf_nan=False)]
@@ -65,5 +66,6 @@ class TrafficLightState(Model):
 
 
 class TrafficLight(TrafficLightState):
+    manual_override: bool = False
     trigger_radius_meters: float = Field(default=TRIGGER_RADIUS_METERS, gt=0)
     yellow_flash_duration_seconds: float = Field(default=YELLOW_FLASH_DURATION_SECONDS, ge=0)

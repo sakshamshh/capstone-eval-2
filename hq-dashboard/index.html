@@ -180,6 +180,9 @@
           </div>
           <dl class="light-details"><div><dt>Registered location</dt><dd class="mono" id="light-location">Waiting for server…</dd></div><div><dt>State changed at</dt><dd class="mono" id="light-changed">—</dd></div></dl>
           <p class="feedback" id="light-error" role="status" hidden></p>
+          <div class="map-tools"><button class="button button-light" id="force-trigger" type="button">Force trigger · yellow → green</button></div>
+          <p class="state-description">Manual test: yellow flashes for about 4.5 seconds, then green for 10 seconds. GPS control resumes automatically.</p>
+          <p class="feedback" id="trigger-feedback" role="status" hidden></p>
         </div>
       </section>
 
@@ -239,6 +242,7 @@
     let placementBusy = false;
     let driversVersion = 0;
     let lightVersion = 0;
+    let triggerBusy = false;
     let lastLight = null;
     let pageActive = true;
     let assignmentMap = null;
@@ -345,7 +349,7 @@
 
     async function placeTrafficLightOnMap(location) {
       // Serialize map placements so repeated clicks cannot race each other.
-      if (placementBusy) {
+      if (placementBusy || triggerBusy) {
         feedback("map-placement-feedback", "A traffic light placement is already in progress. Please wait.", "info");
         return;
       }
@@ -541,27 +545,49 @@
       // Don't restart the animation or live announcement on unchanged polls.
       if ($("light-state").textContent !== labels[light.state]) $("light-state").textContent = labels[light.state];
       $("light-freshness").textContent = `Server state · received ${formatTime()}`;
-      $("light-description").textContent = !placed ? "Place the traffic light to begin the demo." : light.state === "idle" ? "Standing by for an approaching ambulance." : light.state === "yellow_flash" ? "Ambulance approaching. Preparing the priority signal." : "Priority signal is green for the ambulance.";
+      $("light-description").textContent = light.state === "yellow_flash" ? "Preparing the priority signal · yellow is flashing." : light.state === "green" ? "Priority signal is green." : !placed ? "Place the traffic light to begin the GPS demo, or use Force trigger to test the signal." : "Standing by for an approaching ambulance.";
       $("light-location").textContent = placed ? `${light.lat.toFixed(5)}, ${light.lon.toFixed(5)}` : "Not placed yet";
       $("light-changed").textContent = light.state_changed_at ? formatTime(light.state_changed_at) : "—";
       updateLiveMap();
     }
 
     async function pollLight() {
-      if (!pageActive || lightBusy) return;
+      if (!pageActive || lightBusy || triggerBusy) return;
       lightBusy = true;
       const version = lightVersion;
       try {
         const light = await api("/traffic-light/state");
-        if (version !== lightVersion || !pageActive) return;
+        if (version !== lightVersion || !pageActive || triggerBusy) return;
         renderLight(light);
         feedback("light-error", "");
       } catch (error) {
-        if (version !== lightVersion || !pageActive) return;
+        if (version !== lightVersion || !pageActive || triggerBusy) return;
         $("light-panel").dataset.stale = "true";
         $("light-freshness").textContent = lastLight ? "Last known state · connection lost" : "Server connection unavailable";
         feedback("light-error", `${error.message} Retrying automatically every 2 seconds.`);
       } finally { lightBusy = false; }
+    }
+
+    async function forceTrigger() {
+      if (triggerBusy || placementBusy) return;
+      triggerBusy = true;
+      lightVersion++;
+      $("force-trigger").disabled = true;
+      $("force-trigger").textContent = "Sending trigger…";
+      feedback("trigger-feedback", "");
+      try {
+        const light = await api("/traffic-light/trigger", {});
+        renderLight(light);
+        feedback("light-error", "");
+        feedback("trigger-feedback", "Server accepted the test. A connected ESP32 will follow this state on its next poll.", "success");
+      } catch (error) {
+        feedback("trigger-feedback", `${error.message} If this returns HTTP 404, deploy the updated backend first. Watch the monitor before retrying; the request may have reached the server.`);
+      } finally {
+        lightVersion++;
+        triggerBusy = false;
+        $("force-trigger").disabled = false;
+        $("force-trigger").textContent = "Force trigger · yellow → green";
+      }
     }
 
     function geoUnavailable() {
@@ -646,6 +672,7 @@
     }
 
     $("assignment-form").addEventListener("submit", assignEmergency);
+    $("force-trigger").addEventListener("click", forceTrigger);
     // Editing a location or assignment makes its previous success message obsolete.
     $("assignment-form").addEventListener("input", () => feedback("assignment-feedback", ""));
     $("set-pickup").addEventListener("click", () => setStopMode("pickup"));

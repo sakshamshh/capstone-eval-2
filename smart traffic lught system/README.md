@@ -58,12 +58,55 @@ All successful calls below return **200**. Driver records include `driver_id`,
 | --- | --- | --- |
 | `GET /health` | None | `{"status":"ok"}`; no key required |
 | `POST /drivers/{driver_id}/gps` | `{"lat":28.6139,"lon":77.2090}` | Returns driver; creates an idle driver if missing; records GPS and evaluates active-driver light logic |
-| `POST /drivers/{driver_id}/status` | `{"status":"en_route_pickup"}` | Returns updated driver; 404 if missing; `idle` or `completed` immediately resets light |
+| `POST /drivers/{driver_id}/status` | `{"status":"en_route_pickup"}` | Returns updated driver; 404 if missing; `idle` or `completed` resets light unless a manual test is running |
 | `POST /assign` | See example below | Creates/updates assignment, sets `assigned`, returns driver; preserves existing GPS |
 | `GET /drivers/{driver_id}` | None | Driver record; 404 if missing |
 | `GET /drivers` | None | Array of all driver records; initially `[]` |
 | `POST /traffic-light/location` | `{"lat":28.6139,"lon":77.2090}` | Places the one light, resets it to idle, returns the compact light record |
 | `GET /traffic-light/state` | None | Compact light record below; `Cache-Control: no-store` |
+| `POST /traffic-light/trigger` | None or `{}` | Manual demo: yellow flashes for 4.5 seconds, green holds for 10 seconds, then GPS control resumes; returns the same compact light record |
+
+### HQ force trigger
+
+Deploy this backend update to Render before using HQ's **Force trigger** button.
+The button changes the server state, which HQ and ESP32 both poll; it does not
+simulate the signal only in the browser. The test works without a driver or pin.
+While it runs, GPS and driver-status updates cannot interrupt the sequence.
+Repeated trigger requests do not restart or extend it. Moving the traffic-light
+pin cancels the test. After the green hold, normal GPS rules resume (an ambulance
+still inside the radius can start another yellow/green sequence).
+The background timer adds up to about one second to transitions; client polling
+adds its own delay. `MANUAL_GREEN_DURATION_SECONDS` is configurable in `models.py`.
+The four-field ESP32 response is unchanged. The HQ monitor confirms server state,
+not receipt by the physical board; there is no hardware acknowledgement endpoint.
+
+### ESP32 connection troubleshooting
+
+The sketch in `../esp32-firmware/traffic_light_dispatch_client/` currently uses
+`http://192.168.1.16:8000`, while both web apps use
+`https://capstone-eval-2.onrender.com`. If this sketch is installed on the board,
+it must be configured for the same Render server and uploaded again.
+
+1. Set the sketch's `SERVER_URL` to `https://capstone-eval-2.onrender.com` and keep
+   `X-Demo-Key: traffic-demo-2026` on its requests. Confirm its Wi-Fi has internet.
+2. Configure HTTPS with `NetworkClientSecure` (or `WiFiClientSecure` for the
+   installed core), the appropriate trusted CA certificate and a synchronized
+   clock; pass that client to `http.begin(client, url)`. Use Espressif's official
+   [BasicHttpsClient example](https://github.com/espressif/arduino-esp32/blob/master/libraries/HTTPClient/examples/BasicHttpsClient/BasicHttpsClient.ino)
+   as the pattern, using a CA valid for the Render host rather than the example host.
+3. Upload the sketch and open Serial Monitor at **115200 baud**. Expect
+   `Poll OK - state: idle`, then `yellow_flash`, then `green` during the HQ test.
+   HTTP 401 means the demo key is missing/wrong; 404 means check the URL/path;
+   negative HTTP codes indicate a network/TLS failure. Log
+   `HTTPClient::errorToString(code)` for details.
+4. If Serial Monitor shows the right states but the lamps do not respond, check
+   the configured relay pins: **red GPIO13, yellow GPIO12, green GPIO14**, with
+   `ACTIVE_LOW = true`, correct relay power and common ground.
+
+The current sketch performs blocking HTTP requests in its main loop despite its
+comment claiming otherwise. Slow requests can pause blinking; use a separate
+network task if that occurs, keeping relay flashing in the main loop.
+No firmware upload or physical lamp operation is verified by backend tests.
 
 Assignment request:
 

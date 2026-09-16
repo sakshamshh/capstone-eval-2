@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from logic import compute_light_state, haversine_distance_m
 from models import (
     Assignment, AssignRequest, Driver, DriverId, GPSUpdate, StatusUpdate,
-    TrafficLightState, utc_now,
+    TrafficLightState, MANUAL_GREEN_DURATION_SECONDS, utc_now,
 )
 from storage import InMemoryRepository, Repository
 
@@ -36,11 +36,31 @@ def reset_light(repository: Repository, now: datetime) -> None:
     light = repository.get_light()
     light.state = "idle"
     light.state_changed_at = now
+    light.manual_override = False
     repository.save_light(light)
+
+
+def evaluate_manual_trigger(repository: Repository, now: datetime) -> bool:
+    """Run a bounded test sequence; return whether it still owns the light."""
+    light = repository.get_light()
+    if not light.manual_override:
+        return False
+    if (light.state == "green"
+            and (now - light.state_changed_at).total_seconds() >= MANUAL_GREEN_DURATION_SECONDS):
+        reset_light(repository, now)
+        return False
+    light.state, light.state_changed_at = compute_light_state(
+        light.state, light.state_changed_at, 0,
+        light.trigger_radius_meters, light.yellow_flash_duration_seconds, now,
+    )
+    repository.save_light(light)
+    return True
 
 
 def evaluate_driver(repository: Repository, driver: Driver, now: datetime) -> None:
     """Called under the app lock by GPS requests and the periodic evaluator."""
+    if evaluate_manual_trigger(repository, now):
+        return
     if driver.status not in ACTIVE_STATUSES:
         return
     light = repository.get_light()
@@ -59,6 +79,8 @@ def evaluate_driver(repository: Repository, driver: Driver, now: datetime) -> No
 
 def reevaluate_latest_driver(repository: Repository, now: datetime) -> None:
     """Avoid conflicting transitions caused by iterating over multiple drivers."""
+    if evaluate_manual_trigger(repository, now):
+        return
     eligible = [
         driver for driver in repository.list_drivers()
         if driver.status in ACTIVE_STATUSES
@@ -163,7 +185,7 @@ def create_app(repository: Repository | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Driver not found")
             driver.status = body.status
             repo.save_driver(driver)
-            if body.status in {"idle", "completed"}:
+            if body.status in {"idle", "completed"} and not repo.get_light().manual_override:
                 reset_light(repo, utc_now())
             return driver
 
@@ -198,7 +220,21 @@ def create_app(repository: Repository | None = None) -> FastAPI:
             light.lat, light.lon = body.lat, body.lon
             light.state = "idle"
             light.state_changed_at = utc_now()
+            light.manual_override = False
             repo.save_light(light)
+            return light
+
+    @app.post("/traffic-light/trigger", response_model=TrafficLightState)
+    async def force_trigger():
+        async with app.state.lock:
+            repo = app.state.repository
+            light = repo.get_light()
+            # Retries/double-clicks must not extend or restart a running test.
+            if not light.manual_override:
+                light.manual_override = True
+                light.state = "yellow_flash"
+                light.state_changed_at = utc_now()
+                repo.save_light(light)
             return light
 
     @app.get("/traffic-light/state", response_model=TrafficLightState)

@@ -32,6 +32,8 @@ def client():
     ("POST", "/assign"), ("GET", "/drivers/a"), ("GET", "/drivers"),
     ("POST", "/traffic-light/location"), ("GET", "/traffic-light/state"),
     ("POST", "/traffic-light/trigger"),
+    ("POST", "/traffic-light/location/clear"),
+    ("POST", "/drivers/a/assignment/remove-pin"),
 ])
 def test_all_business_endpoints_require_key(client, method, path):
     client.headers.pop("X-Demo-Key")
@@ -249,3 +251,35 @@ def test_manual_trigger_background_sequence_without_driver_or_placement(monkeypa
                 break
             time.sleep(0.01)
         assert observed == ["yellow_flash", "green", "idle"]
+
+
+def test_clear_light_pin_resets_override_and_stops_gps_trigger(client):
+    client.post("/traffic-light/location", json={"lat": 0, "lon": 0})
+    client.post("/traffic-light/trigger")
+    removed = client.post("/traffic-light/location/clear").json()
+    assert removed["lat"] is None and removed["lon"] is None
+    assert removed["state"] == "idle"
+    assert not client.app.state.repository.get_light().manual_override
+    client.post("/assign", json=ASSIGNMENT)
+    client.post("/drivers/ambulance-1/status", json={"status": "en_route_pickup"})
+    client.post("/drivers/ambulance-1/gps", json={"lat": 0, "lon": 0})
+    main.reevaluate_latest_driver(client.app.state.repository, utc_now())
+    assert client.get("/traffic-light/state").json()["state"] == "idle"
+    assert client.post("/traffic-light/location/clear").status_code == 200
+
+
+@pytest.mark.parametrize("pin,other", [("pickup", "hospital"), ("hospital", "pickup")])
+def test_remove_assignment_pin_persists_and_preserves_other_stop(client, pin, other):
+    client.post("/assign", json=ASSIGNMENT)
+    path = "/drivers/ambulance-1/assignment/remove-pin"
+    removed = client.post(path, json={"pin": pin})
+    assert removed.status_code == 200
+    record = client.get("/drivers/ambulance-1").json()
+    assert record["assignment"][f"{pin}_lat"] is None
+    assert record["assignment"][f"{pin}_lon"] is None
+    assert record["assignment"][f"{other}_lat"] == ASSIGNMENT[f"{other}_lat"]
+    assert record["status"] == "assigned"
+    assert client.post(path, json={"pin": pin}).status_code == 200
+    assert client.post(path, json={"pin": "driver"}).status_code == 422
+    assert client.post("/drivers/missing/assignment/remove-pin", json={"pin": pin}).status_code == 404
+    assert client.post("/assign", json={**ASSIGNMENT, "pickup_lat": None}).status_code == 422

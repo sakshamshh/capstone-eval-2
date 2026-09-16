@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from logic import compute_light_state, haversine_distance_m
 from models import (
     Assignment, AssignRequest, Driver, DriverId, GPSUpdate, StatusUpdate,
-    TrafficLightState, MANUAL_GREEN_DURATION_SECONDS, utc_now,
+    TrafficLightState, RemovePinRequest, MANUAL_GREEN_DURATION_SECONDS, utc_now,
 )
 from storage import InMemoryRepository, Repository
 
@@ -207,6 +207,19 @@ def create_app(repository: Repository | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Driver not found")
             return driver
 
+    @app.post("/drivers/{driver_id}/assignment/remove-pin", response_model=Driver)
+    async def remove_assignment_pin(driver_id: DriverId, body: RemovePinRequest):
+        async with app.state.lock:
+            repo = app.state.repository
+            driver = repo.get_driver(driver_id)
+            if driver is None:
+                raise HTTPException(status_code=404, detail="Driver not found")
+            if driver.assignment is not None:
+                setattr(driver.assignment, f"{body.pin}_lat", None)
+                setattr(driver.assignment, f"{body.pin}_lon", None)
+                repo.save_driver(driver)
+            return driver
+
     @app.get("/drivers", response_model=list[Driver])
     async def list_drivers() -> list[Driver]:
         async with app.state.lock:
@@ -235,6 +248,18 @@ def create_app(repository: Repository | None = None) -> FastAPI:
                 light.state = "yellow_flash"
                 light.state_changed_at = utc_now()
                 repo.save_light(light)
+            return light
+
+    @app.post("/traffic-light/location/clear", response_model=TrafficLightState)
+    async def clear_light_location():
+        async with app.state.lock:
+            repo = app.state.repository
+            light = repo.get_light()
+            light.lat = light.lon = None
+            light.state = "idle"
+            light.state_changed_at = utc_now()
+            light.manual_override = False
+            repo.save_light(light)
             return light
 
     @app.get("/traffic-light/state", response_model=TrafficLightState)

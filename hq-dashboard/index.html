@@ -47,7 +47,8 @@
     .state-description { color: #c0d2d0; font-size: 13px; margin: 14px 0 0; line-height: 1.6; max-width: 340px; }
     .signal { display: grid; gap: 10px; padding: 10px; border-radius: 8px; background: #092024; border: 1px solid #3b575c; flex-shrink: 0; }
     .lamp { width: 24px; height: 24px; border-radius: 50%; background: #243e43; border: 1px solid #405a5e; }
-    .light-panel[data-state="idle"] .lamp-idle { background: #a3b1b5; box-shadow: 0 0 20px #a3b1b522; }
+    .light-panel[data-state="idle"] .lamp-idle { background: #ef4444; box-shadow: 0 0 20px #ef444466; }
+    .light-panel[data-state="idle"] .state-word { color: #fca5a5; background: #4c2020; border-color: #b34040; }
     .light-panel[data-state="yellow_flash"] .state-word { color: #ffcf79; background: #493b21; border-color: #80623a; animation: amber-pulse 1.2s ease-in-out infinite; font-size: clamp(30px, 3.4vw, 46px); }
     .light-panel[data-state="yellow_flash"] .lamp-yellow { background: #ffc456; box-shadow: 0 0 25px #ffc45666; animation: amber-pulse 1.2s ease-in-out infinite; }
     .light-panel[data-state="green"] .state-word { color: #a7f1ca; background: #194b3b; border-color: #377e60; }
@@ -186,6 +187,7 @@
                 <button class="button" id="set-traffic-light" type="button" aria-pressed="false">Place traffic light</button>
               </div>
               <p class="field-help" id="map-selection-hint" role="status">Click map to set pickup.</p>
+              <div class="map-tools"><button class="button" id="remove-pin" type="button">Remove pickup</button></div>
               <div class="map-canvas" id="assignment-map" aria-label="Click to choose pickup, hospital, or traffic light"></div>
               <p class="map-note" id="assignment-map-note" role="status">Loading map…</p>
               <p class="feedback" id="map-placement-feedback" role="status" hidden></p>
@@ -227,6 +229,7 @@
     let driversVersion = 0;
     let lightVersion = 0;
     let triggerBusy = false;
+    let pinRemovalBusy = false;
     let lastLight = null;
     let pageActive = true;
     let assignmentMap = null;
@@ -301,7 +304,7 @@
                 className: "ambulance-map-marker", html: '<span aria-hidden="true">✚</span>',
                 iconSize: [28, 28], iconAnchor: [14, 14]
               }) })
-            : L.circleMarker(coordinates, { radius: 9, color: "#ffffff", weight: 3, fillColor: color, fillOpacity: 1 });
+            : L.circleMarker(coordinates, { radius: key === "light" || key === "traffic-light" ? 12 : 9, color: key === "light" || key === "traffic-light" ? "#111827" : "#ffffff", weight: 3, fillColor: color, fillOpacity: 1 });
           marker.bindTooltip(tooltip).addTo(instance.map);
           instance.markers.set(key, marker);
         } else {
@@ -323,6 +326,7 @@
     function setStopMode(stop) {
       if (!["pickup", "hospital", "traffic-light"].includes(stop)) return;
       selectedStop = stop;
+      $("remove-pin").textContent = `Remove ${stop === "traffic-light" ? "traffic light" : stop}`;
       $("set-pickup").setAttribute("aria-pressed", String(stop === "pickup"));
       $("set-hospital").setAttribute("aria-pressed", String(stop === "hospital"));
       $("set-traffic-light").setAttribute("aria-pressed", String(stop === "traffic-light"));
@@ -333,7 +337,7 @@
 
     async function placeTrafficLightOnMap(location) {
       // Serialize map placements so repeated clicks cannot race each other.
-      if (placementBusy || triggerBusy) {
+      if (placementBusy || triggerBusy || pinRemovalBusy) {
         feedback("map-placement-feedback", "Please wait…", "info");
         return;
       }
@@ -363,6 +367,47 @@
       feedback("assignment-feedback", "");
     }
 
+    async function removeSelectedPin() {
+      if (pinRemovalBusy || placementBusy || triggerBusy || assignmentBusy) return;
+      const pin = selectedStop;
+      const driverId = $("driver-id").value.trim();
+      const selectedDriver = liveDrivers.find(record => record.driver_id === driverId);
+      pinRemovalBusy = true;
+      lightVersion++;
+      driversVersion++;
+      updateFormButtons();
+      clearTimeout(mapPlacementTimer);
+      feedback("map-placement-feedback", "Removing pin…", "info");
+      try {
+        if (pin === "traffic-light") {
+          const light = await api("/traffic-light/location/clear", {});
+          renderLight(light);
+          feedback("light-error", "");
+          feedback("trigger-feedback", "");
+        } else {
+          let records = liveDrivers;
+          if (selectedDriver) {
+            const record = await api(`/drivers/${encodeURIComponent(driverId)}/assignment/remove-pin`, { pin });
+            records = liveDrivers.map(driver => driver.driver_id === driverId ? record : driver);
+          }
+          if (pin === "pickup") pickupLocation = null;
+          else hospitalLocation = null;
+          $(`${pin}-coordinates`).textContent = `${pin === "pickup" ? "Pickup" : "Hospital"}: not selected`;
+          renderDrivers(records);
+          feedback("assignment-feedback", "");
+        }
+        feedback("map-placement-feedback", "Pin removed", "success");
+        mapPlacementTimer = setTimeout(() => feedback("map-placement-feedback", ""), 5000);
+      } catch (error) {
+        feedback("map-placement-feedback", `${error.message} Removal not confirmed. Retry; HTTP 404 may mean the backend needs updating.`);
+      } finally {
+        lightVersion++;
+        driversVersion++;
+        pinRemovalBusy = false;
+        updateFormButtons();
+      }
+    }
+
     function updateLiveMap(records = liveDrivers) {
       liveDrivers = records;
       const id = $("driver-id").value.trim();
@@ -374,7 +419,7 @@
       assignmentMap.marker("me", myPosition ? [myPosition.lat, myPosition.lon] : null, "#9333ea", "You · dispatcher device");
       const placed = lastLight && validCoordinates(lastLight.lat, lastLight.lon);
       assignmentMap.marker("traffic-light", placed ? [lastLight.lat, lastLight.lon] : null,
-        { idle: "#374151", yellow_flash: "#f59e0b", green: "#16a34a" }[lastLight?.state] || "#374151",
+        { idle: "#ef4444", yellow_flash: "#f59e0b", green: "#16a34a" }[lastLight?.state] || "#64748b",
         `Traffic light · ${lastLight?.state || "unknown"}`);
       // Show the selected driver's saved stops until a draft stop is chosen.
       for (const stop of ["pickup", "hospital"]) {
@@ -395,7 +440,7 @@
         await loadMapLibrary();
         assignmentMap = createDemoMap("assignment-map", "assignment-map-note");
         assignmentMap?.safe(() => assignmentMap.map.on("click", event => {
-          if (assignmentBusy) return;
+          if (assignmentBusy || pinRemovalBusy) return;
           if (!assignmentMap.ready) {
             feedback("assignment-map-note", "Map unavailable or still loading. Wait for the map tiles before choosing a stop.");
             return;
@@ -503,24 +548,24 @@
     }
 
     async function pollDrivers() {
-      if (!pageActive || driversBusy) return;
+      if (!pageActive || driversBusy || pinRemovalBusy) return;
       driversBusy = true;
       const version = driversVersion;
       try {
         const records = await api("/drivers");
-        if (version !== driversVersion || !pageActive) return;
+        if (version !== driversVersion || !pageActive || pinRemovalBusy) return;
         if (!Array.isArray(records)) throw new Error("The server returned an invalid driver list.");
         renderDrivers(records);
         feedback("drivers-error", "");
       } catch (error) {
-        if (version !== driversVersion || !pageActive) return;
+        if (version !== driversVersion || !pageActive || pinRemovalBusy) return;
         feedback("drivers-error", `${error.message} Retrying automatically; displayed drivers may be out of date.`);
         if ($("driver-count").textContent === "—") $("drivers-empty").textContent = "Driver list unavailable. Waiting to reconnect…";
       } finally { driversBusy = false; }
     }
 
     function renderLight(light) {
-      const labels = { idle: "IDLE", yellow_flash: "YELLOW FLASH", green: "GREEN" };
+      const labels = { idle: "RED", yellow_flash: "YELLOW FLASH", green: "GREEN" };
       if (!light || !Object.hasOwn(labels, light.state)) throw new Error("The server returned an unknown light state.");
       const placed = validCoordinates(light.lat, light.lon);
       lastLight = light;
@@ -535,16 +580,16 @@
     }
 
     async function pollLight() {
-      if (!pageActive || lightBusy || triggerBusy) return;
+      if (!pageActive || lightBusy || triggerBusy || pinRemovalBusy) return;
       lightBusy = true;
       const version = lightVersion;
       try {
         const light = await api("/traffic-light/state");
-        if (version !== lightVersion || !pageActive || triggerBusy) return;
+        if (version !== lightVersion || !pageActive || triggerBusy || pinRemovalBusy) return;
         renderLight(light);
         feedback("light-error", "");
       } catch (error) {
-        if (version !== lightVersion || !pageActive || triggerBusy) return;
+        if (version !== lightVersion || !pageActive || triggerBusy || pinRemovalBusy) return;
         $("light-panel").dataset.stale = "true";
         $("light-freshness").textContent = lastLight ? "Last known state · connection lost" : "Server connection unavailable";
         feedback("light-error", `${error.message} Retrying automatically every 2 seconds.`);
@@ -552,7 +597,7 @@
     }
 
     async function forceTrigger() {
-      if (triggerBusy || placementBusy) return;
+      if (triggerBusy || placementBusy || pinRemovalBusy) return;
       triggerBusy = true;
       lightVersion++;
       $("force-trigger").disabled = true;
@@ -620,17 +665,18 @@
     }
 
     function updateFormButtons() {
-      $("assignment-fields").disabled = assignmentBusy;
+      $("assignment-fields").disabled = assignmentBusy || pinRemovalBusy;
+      $("remove-pin").disabled = assignmentBusy || pinRemovalBusy;
       $("set-pickup").disabled = assignmentBusy || !assignmentMap;
       $("set-hospital").disabled = assignmentBusy || !assignmentMap;
       $("set-traffic-light").disabled = assignmentBusy || !assignmentMap;
-      $("send-assignment").disabled = assignmentBusy;
+      $("send-assignment").disabled = assignmentBusy || pinRemovalBusy;
       $("send-assignment").textContent = assignmentBusy ? "Sending assignment…" : "Assign emergency";
     }
 
     async function assignEmergency(event) {
       event.preventDefault();
-      if (assignmentBusy || !$("assignment-form").reportValidity()) return;
+      if (assignmentBusy || pinRemovalBusy || !$("assignment-form").reportValidity()) return;
       // Selected map coordinates retain their full precision in the API payload.
       const body = {
         driver_id: $("driver-id").value,
@@ -655,6 +701,7 @@
     }
 
     $("assignment-form").addEventListener("submit", assignEmergency);
+    $("remove-pin").addEventListener("click", removeSelectedPin);
     $("force-trigger").addEventListener("click", forceTrigger);
     // Editing a location or assignment makes its previous success message obsolete.
     $("assignment-form").addEventListener("input", () => feedback("assignment-feedback", ""));

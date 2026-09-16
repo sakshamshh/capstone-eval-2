@@ -39,13 +39,23 @@ class StatusUpdate(Model):
 
 
 class Assignment(Model):
+    pickup_lat: Latitude | None = None
+    pickup_lon: Longitude | None = None
+    hospital_lat: Latitude | None = None
+    hospital_lon: Longitude | None = None
+
+
+class RemovePinRequest(Model):
+    pin: Literal["pickup", "hospital"]
+
+
+class AssignRequest(Model):
     pickup_lat: Latitude
     pickup_lon: Longitude
     hospital_lat: Latitude
     hospital_lon: Longitude
 
 
-class AssignRequest(Assignment):
     driver_id: DriverId
 
 

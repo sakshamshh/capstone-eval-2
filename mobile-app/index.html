@@ -163,7 +163,7 @@
           <h3>Next traffic light</h3>
           <p id="light-distance" role="status">Waiting for traffic light location…</p>
         </div>
-        <p class="map-legend">✚ You · Red: pickup · Blue: hospital · Gray/amber/green: light</p>
+        <p class="map-legend">✚ You · Red: pickup · Blue: hospital · Red/amber/green: light</p>
         <div class="map-canvas" id="live-map" aria-label="Your location, pickup, hospital, and traffic light map"></div>
         <p class="map-note" id="live-map-note" role="status">Loading map…</p>
         <p class="map-legend" id="map-position-note">Waiting for location updates.</p>
@@ -272,7 +272,7 @@
                 className: "ambulance-map-marker", html: '<span aria-hidden="true">✚</span>',
                 iconSize: [28, 28], iconAnchor: [14, 14]
               }) })
-            : L.circleMarker(coordinates, { radius: 9, color: "#ffffff", weight: 3, fillColor: color, fillOpacity: 1 });
+            : L.circleMarker(coordinates, { radius: key === "light" || key === "traffic-light" ? 12 : 9, color: key === "light" || key === "traffic-light" ? "#111827" : "#ffffff", weight: 3, fillColor: color, fillOpacity: 1 });
           marker.bindTooltip(tooltip).addTo(instance.map);
           instance.markers.set(key, marker);
         } else {
@@ -299,7 +299,7 @@
       const lon = useLocal ? position.lon : driver?.current_lon;
       const hasDriver = coordinatesValid(lat, lon);
       const hasLight = mapLight && coordinatesValid(mapLight.lat, mapLight.lon);
-      $("map-position-note").textContent = `Ambulance: ${hasDriver ? "last reported GPS" : "waiting for GPS"} · Light: ${hasLight ? mapLight.state.replaceAll("_", " ") : mapLight ? "not placed yet" : "waiting for server"}`;
+      $("map-position-note").textContent = `Ambulance: ${hasDriver ? "last reported GPS" : "waiting for GPS"} · Light: ${hasLight ? (mapLight.state === "idle" ? "red" : mapLight.state.replaceAll("_", " ")) : mapLight ? "not placed yet" : "waiting for server"}`;
       let proximity = "Waiting for traffic light location…";
       if (mapLight && !hasLight) proximity = "Traffic light not placed yet";
       else if (hasLight && !hasDriver) proximity = "Waiting for GPS…";
@@ -313,7 +313,7 @@
       if (!liveMap) return;
       liveMap.marker("driver", hasDriver ? [lat, lon] : null, "#1d4ed8", "Your ambulance · latest reported position", true);
       liveMap.marker("light", hasLight ? [mapLight.lat, mapLight.lon] : null,
-        { idle: "#64748b", yellow_flash: "#f59e0b", green: "#16a34a" }[mapLight?.state] || "#64748b",
+        { idle: "#ef4444", yellow_flash: "#f59e0b", green: "#16a34a" }[mapLight?.state] || "#64748b",
         `Traffic light · ${mapLight?.state || "unknown"}`);
       for (const stop of ["pickup", "hospital"]) {
         const stopLat = driver?.assignment?.[`${stop}_lat`];

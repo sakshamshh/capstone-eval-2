@@ -65,6 +65,15 @@ All successful calls below return **200**. Driver records include `driver_id`,
 | `POST /traffic-light/location` | `{"lat":28.6139,"lon":77.2090}` | Places the one light, resets it to idle, returns the compact light record |
 | `GET /traffic-light/state` | None | Compact light record below; `Cache-Control: no-store` |
 | `POST /traffic-light/trigger` | None or `{}` | Manual demo: yellow flashes for 4.5 seconds, green holds for 10 seconds, then GPS control resumes; returns the same compact light record |
+| `POST /traffic-light/location/clear` | None or `{}` | Removes the light pin, cancels manual override, returns idle (physical red) |
+| `POST /drivers/{driver_id}/assignment/remove-pin` | `{"pin":"pickup"}` or `{"pin":"hospital"}` | Clears that stop's coordinate pair; returns driver; preserves status and the other stop |
+
+HQ shows API state `idle` as **RED**. To remove a pin, select its placement mode
+and click **Remove pickup**, **Remove hospital**, or **Remove traffic light**.
+Saved removals propagate to the ambulance app on its next poll. Removed stop
+coordinates are null; new assignments still require all four coordinates.
+Live GPS markers are not manually placed pins and remain visible.
+Deploy the updated backend and both app files to enable removal and red idle styling.
 
 ### HQ force trigger
 

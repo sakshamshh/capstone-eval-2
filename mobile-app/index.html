@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0c1519">
   <meta name="color-scheme" content="dark">
   <meta name="description" content="Ambulance driver dispatch and location sharing.">
-  <title>Lifeline · Driver</title>
+  <title>Ambulance</title>
   <!--
     Standalone driver app. No build step; optional maps use Leaflet and OpenStreetMap.
     Serve this folder: python -m http.server 8080
@@ -35,19 +35,13 @@
     button:not(:disabled):active { transform: translateY(1px); }
     svg { display: block; flex: 0 0 auto; }
     .app {
-      max-width: 480px; margin: 0 auto; min-height: 100vh; min-height: 100svh;
-      padding: max(24px, env(safe-area-inset-top)) 22px max(24px, env(safe-area-inset-bottom));
+      max-width: 900px; margin: 0 auto; min-height: 100vh; min-height: 100svh;
+      padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
       display: flex; flex-direction: column;
     }
-    .masthead { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-    .brand { display: flex; align-items: center; gap: 10px; }
-    .brand-icon { width: 38px; height: 38px; display: grid; place-items: center; background: var(--mint); color: #122c25; border-radius: 12px; }
-    .wordmark { font-size: 18px; font-weight: 800; letter-spacing: 2.2px; }
     .eyebrow { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; color: var(--muted); }
-    .brand .eyebrow { font-size: 9px; margin-top: 4px; letter-spacing: 2.1px; }
-    .demo { border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 1.5px; }
     .connection {
-      margin-top: 24px; padding: 13px 0; display: flex; align-items: center; gap: 8px;
+      margin-top: 0; padding: 10px 0; display: flex; align-items: center; gap: 8px;
       border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
       font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
     }
@@ -56,33 +50,28 @@
     .connection[data-state="error"] .connection-label { color: var(--red); }
     .connection-label { display: flex; align-items: center; gap: 7px; }
     .request-time { margin-left: auto; white-space: nowrap; }
-    main { flex: 1; padding-top: 25px; }
-    .driver-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 20px; }
+    main { flex: 1; padding-top: 12px; }
+    .driver-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
     .driver-id { font-size: 13px; font-weight: 600; color: #d6e1de; }
     .badge { color: var(--mint); font-size: 10px; font-weight: 750; letter-spacing: 1.1px; text-transform: uppercase; display: flex; align-items: center; gap: 6px; }
     .badge[data-tone="warm"] { color: var(--amber); }
-    .card { background: #142126; border: 1px solid var(--line); border-radius: 22px; overflow: hidden; }
-    .rest { text-align: center; padding: 31px 20px 30px; }
-    .rest-art { width: 112px; height: 112px; border-radius: 50%; background: #1b3433; color: var(--mint); display: grid; place-items: center; margin: 0 auto 24px; position: relative; }
-    .rest-art::after { content: ""; position: absolute; inset: -7px; border: 1px solid #284541; border-radius: 50%; }
-    .rest h1 { margin: 8px 0 12px; font-size: clamp(29px, 8vw, 36px); letter-spacing: -1.1px; line-height: 1.15; }
+    .card { background: #142126; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+    .rest { padding: 12px; }
+    .rest h1 { margin: 0; font-size: 22px; letter-spacing: -1.1px; line-height: 1.15; }
     .rest p { color: var(--muted); font-size: 16px; line-height: 1.65; margin: 0 auto; max-width: 290px; }
-    .rest .rest-kicker { color: var(--mint); font-size: 10px; letter-spacing: 2px; font-weight: 700; }
-    .waiting { display: inline-flex; align-items: center; gap: 8px; margin-top: 24px; color: var(--muted); font-size: 12px; }
-    .waiting .dot { width: 5px; height: 5px; }
-    .mission-heading { padding: 23px 22px; background: #1a3330; border-bottom: 1px solid #35524a; }
+    .mission-heading { padding: 12px; background: #1a3330; border-bottom: 1px solid #35524a; }
     .mission-heading[data-tone="warm"] { background: #38291e; border-color: #66503a; }
     .mission-heading .eyebrow { color: var(--mint); display: flex; gap: 8px; align-items: center; }
     .mission-heading[data-tone="warm"] .eyebrow { color: var(--amber); }
-    .mission-heading h1 { font-size: 29px; line-height: 1.16; margin: 12px 0 8px; letter-spacing: -.8px; }
+    .mission-heading h1 { font-size: 22px; line-height: 1.2; margin: 0; letter-spacing: -.8px; }
     .mission-heading p:last-child { font-size: 14px; line-height: 1.55; margin: 0; color: #c0cdca; }
-    .mission-body { padding: 22px; }
-    .distance { padding-bottom: 23px; margin-bottom: 22px; border-bottom: 1px solid var(--line); }
-    .distance-value { display: block; font-size: 42px; font-weight: 650; letter-spacing: -1.6px; line-height: 1.2; margin: 7px 0; }
+    .mission-body { padding: 12px; }
+    .distance { padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+    .distance-value { display: block; font-size: 30px; font-weight: 650; letter-spacing: -1.6px; line-height: 1.2; margin: 7px 0; }
     .distance-note { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; }
-    .route { margin: 0 0 24px; padding: 0; list-style: none; }
+    .route { margin: 0 0 12px; padding: 0; list-style: none; }
     .route li { position: relative; padding-left: 28px; }
-    .route li:first-child { padding-bottom: 25px; }
+    .route li:first-child { padding-bottom: 12px; }
     .route li:first-child::after { content: ""; position: absolute; top: 16px; bottom: 4px; left: 5px; width: 1px; background: #476057; }
     .route li::before { content: ""; position: absolute; left: 0; top: 4px; width: 11px; height: 11px; border: 2px solid var(--mint); border-radius: 50%; }
     .route li:last-child::before { border-radius: 2px; background: var(--mint); }
@@ -100,14 +89,12 @@
     .message { margin: 14px 0 0; color: var(--red); font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
     .message[data-tone="success"] { color: var(--mint); }
     .sync-note { color: var(--amber); margin-bottom: 16px; }
-    footer { margin-top: 30px; }
-    .footer-note { display: flex; justify-content: center; gap: 7px; margin: 26px 0 0; font-size: 10px; color: #8ea4a4; letter-spacing: 1.2px; text-transform: uppercase; }
-    .map-panel { margin-top: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #142126; }
+    .map-panel { margin-top: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: #142126; }
     .map-panel h2 { font-size: 14px; margin: 0 0 9px; }
     .light-proximity { margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #1c3237; }
     .light-proximity h3 { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
     .light-proximity p { margin: 0; font-size: 21px; font-weight: 700; line-height: 1.5; font-variant-numeric: tabular-nums; }
-    .map-canvas { height: 210px; width: 100%; position: relative; z-index: 0; border-radius: 10px; background: #263b3e; color: #1c3135; }
+    .map-canvas { height: clamp(360px, 58svh, 700px); width: 100%; position: relative; z-index: 0; border-radius: 10px; background: #263b3e; color: #1c3135; }
     .map-note, .map-legend { font-size: 12px; line-height: 1.6; color: var(--muted); margin: 9px 0; }
     .map-note { color: var(--amber); }
     .map-panel .button { margin-top: 10px; min-height: 56px; font-size: 14px; }
@@ -115,8 +102,8 @@
     .map-canvas .leaflet-control-attribution { font-size: 9px; }
     noscript p { padding: 18px; background: #38291e; color: var(--amber); }
     @media (min-width: 600px) {
-      body { background: radial-gradient(ellipse at 50% 20%, #1a2d30, #0c1519 65%); }
-      .app { margin: 28px auto; min-height: calc(100svh - 56px); background: #0c1519; border: 1px solid var(--line); border-radius: 28px; padding: 28px; }
+
+      .app { padding: 16px; }
     }
     @media (max-width: 350px) {
       .app { padding-left: 16px; padding-right: 16px; }
@@ -130,15 +117,8 @@
 <body>
   <div class="app">
     <header>
-      <div class="masthead">
-        <div class="brand">
-          <span class="brand-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3Z" fill="currentColor"/></svg></span>
-          <div><div class="wordmark">LIFELINE</div><p class="eyebrow">Driver console</p></div>
-        </div>
-        <span class="demo">DEMO</span>
-      </div>
       <div class="connection" id="connection" data-state="pending" role="status" aria-live="polite" aria-atomic="true">
-        <span class="connection-label"><span class="dot" aria-hidden="true"></span><span id="connection-label">Connecting to dispatch</span></span>
+        <span class="connection-label"><span class="dot" aria-hidden="true"></span><span id="connection-label">Connecting…</span></span>
         <span class="request-time" id="request-time">—</span>
       </div>
     </header>
@@ -149,23 +129,12 @@
       <p class="message sync-note" id="sync-note" role="status" hidden></p>
 
       <section class="card rest" id="rest-screen" aria-labelledby="rest-title">
-        <div class="rest-art" aria-hidden="true">
-          <svg width="74" height="58" viewBox="0 0 80 62" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M8 45V22a4 4 0 0 1 4-4h35v27M47 28h12l12 12v9H63M8 49h9m12 0h22M52 31v10h16M24 25v14m-7-7h14M24 11h12"/>
-            <circle cx="23" cy="49" r="6"/><circle cx="57" cy="49" r="6"/><path d="M9 57h62" stroke-opacity=".3"/>
-          </svg>
-        </div>
-        <p class="rest-kicker" id="rest-kicker">TAKE A BREATHER</p>
-        <h1 id="rest-title">You're off duty</h1>
-        <p id="rest-description">Your next assignment will appear here. We'll keep you in sync with dispatch.</p>
-        <div class="waiting"><span class="dot" aria-hidden="true"></span><span id="rest-note">Checking for assignments every 3s</span></div>
+        <h1 id="rest-title">Off duty</h1>
       </section>
 
       <section class="card" id="mission-screen" aria-labelledby="mission-title" hidden>
         <div class="mission-heading" id="mission-heading" data-tone="warm">
-          <p class="eyebrow"><span class="dot" aria-hidden="true"></span><span id="mission-kicker">Dispatch alert</span></p>
-          <h1 id="mission-title">New emergency assigned</h1>
-          <p id="mission-description">Your route is ready. Start when you're ready to leave.</p>
+          <h1 id="mission-title">Emergency assigned</h1>
         </div>
         <div class="mission-body">
           <div class="distance" id="distance-panel" hidden>
@@ -174,10 +143,10 @@
             <p class="distance-note" id="distance-note">Waiting for your location · straight-line distance</p>
           </div>
           <ol class="route" aria-label="Emergency route">
-            <li><p class="stop-label">01 / Pickup</p><p class="coordinates" id="pickup-coordinates">Not provided</p></li>
-            <li><p class="stop-label">02 / Hospital</p><p class="coordinates" id="hospital-coordinates">Not provided</p></li>
+            <li><p class="stop-label">Pickup</p><p class="coordinates" id="pickup-coordinates">Not provided</p></li>
+            <li><p class="stop-label">Hospital</p><p class="coordinates" id="hospital-coordinates">Not provided</p></li>
           </ol>
-          <button class="button primary" id="mission-action" type="button" data-tone="warm"><span id="action-label">Start driving to pickup</span><span aria-hidden="true">→</span></button>
+          <button class="button primary" id="mission-action" type="button" data-tone="warm"><span id="action-label">Start to pickup</span><span aria-hidden="true">→</span></button>
           <p class="message" id="action-message" role="alert" hidden></p>
         </div>
       </section>
@@ -189,25 +158,22 @@
       </div>
       <p class="message" id="geo-unavailable" role="status" hidden></p>
       <section class="map-panel" aria-labelledby="live-map-title">
-        <h2 id="live-map-title">Your map · all positions</h2>
+        <h2 id="live-map-title">Map</h2>
         <div class="light-proximity">
-          <h3>Distance to next traffic light</h3>
+          <h3>Next traffic light</h3>
           <p id="light-distance" role="status">Waiting for traffic light location…</p>
         </div>
-        <p class="map-legend">Blue ✚: you / ambulance · Red: pickup · Blue circle: hospital · Gray / amber / green: traffic light</p>
+        <p class="map-legend">✚ You · Red: pickup · Blue: hospital · Gray/amber/green: light</p>
         <div class="map-canvas" id="live-map" aria-label="Your location, pickup, hospital, and traffic light map"></div>
         <p class="map-note" id="live-map-note" role="status">Loading map…</p>
         <p class="map-legend" id="map-position-note">Waiting for location updates.</p>
         <p class="map-legend" id="my-location-note" role="status">Finding your location…</p>
         <p class="message" id="map-live-error" role="status" hidden></p>
         <button class="button secondary" id="fit-live-map" type="button">Show all pins</button>
-        <button class="button secondary" id="show-my-location" type="button">Show my location / retry</button>
+        <button class="button secondary" id="show-my-location" type="button">My location / retry</button>
       </section>
     </main>
 
-    <footer>
-      <p class="footer-note">One ambulance <span aria-hidden="true">·</span> A clearer way through</p>
-    </footer>
   </div>
 
   <script>
@@ -267,7 +233,7 @@
       const instance = { map: null, markers: new Map(), ready: false };
       const fail = () => {
         instance.ready = false;
-        note.textContent = "Map unavailable. Check your internet connection or reload the page.";
+        note.textContent = "Map unavailable. Check connection or reload.";
         note.hidden = false;
       };
       instance.safe = (action) => { try { return action(); } catch (error) { fail(); } };
@@ -336,7 +302,7 @@
       $("map-position-note").textContent = `Ambulance: ${hasDriver ? "last reported GPS" : "waiting for GPS"} · Light: ${hasLight ? mapLight.state.replaceAll("_", " ") : mapLight ? "not placed yet" : "waiting for server"}`;
       let proximity = "Waiting for traffic light location…";
       if (mapLight && !hasLight) proximity = "Traffic light not placed yet";
-      else if (hasLight && !hasDriver) proximity = "Waiting for your GPS location to calculate distance to light";
+      else if (hasLight && !hasDriver) proximity = "Waiting for GPS…";
       else if (hasLight && hasDriver) {
         const distance = distanceMeters(lat, lon, mapLight.lat, mapLight.lon);
         const timestamp = useLocal ? position.timestamp : serverTime;
@@ -400,7 +366,7 @@
 
     function connectionState(ok, detail = "") {
       $("connection").dataset.state = ok ? "ok" : "error";
-      $("connection-label").textContent = ok ? "Last request succeeded" : `Last request failed${detail ? ` · ${detail}` : ""}`;
+      $("connection-label").textContent = ok ? "Server connected" : `Request failed${detail ? ` · ${detail}` : ""}`;
       $("request-time").textContent = timeLabel();
     }
 
@@ -471,13 +437,13 @@
           if (!coordinatesValid(lat, lon)) return;
           const firstFix = !devicePosition;
           devicePosition = { lat, lon, timestamp: position.timestamp };
-          message("my-location-note", "Your location is shown on this device. Sharing starts when you drive.", "info");
+          message("my-location-note", "", "info");
           updateDriverMap();
           if (firstFix) liveMap?.fit();
         }, error => {
           if (generation !== viewWatchGeneration) return;
           if (error.code === 1) { stopViewLocation(); viewGpsBlocked = true; }
-          message("my-location-note", `${geoErrorText(error)} ${devicePosition ? "Pin shows your last known location. " : ""}Tap Show my location / retry.`);
+          message("my-location-note", `${geoErrorText(error)} ${devicePosition ? "Pin shows your last known location. " : ""}Tap My location / retry.`);
         }, GEO_OPTIONS);
       } catch (error) { viewGpsBlocked = true; message("my-location-note", geoErrorText(error)); }
     }
@@ -517,7 +483,7 @@
         return;
       }
       const generation = watchGeneration;
-      setGpsMessage("Finding your location", "Allow location access to share your position with dispatch.");
+      setGpsMessage("Finding your location", "Allow location access.");
       try {
         watchId = navigator.geolocation.watchPosition((position) => {
           if (generation !== watchGeneration || !isDriving()) return;
@@ -529,9 +495,9 @@
           const firstFix = !devicePosition;
           localPosition = { lat, lon, accuracy, timestamp: position.timestamp };
           devicePosition = localPosition;
-          message("my-location-note", "Your latest GPS position is shown on the map.", "info");
+          message("my-location-note", "", "info");
           gpsQueue = { lat, lon };
-          setGpsMessage("GPS signal received", "Sending your latest location to dispatch.");
+          setGpsMessage("GPS signal received", "Sending GPS…");
           updateDistance();
           updateDriverMap();
           if (firstFix) liveMap?.fit();
@@ -569,7 +535,7 @@
       try {
         await api(`${driverPath}/gps`, sample);
         // GPS responses never overwrite status; a newer status/poll may already exist.
-        if (generation === watchGeneration) setGpsMessage("Location sharing is on", `Last sent at ${timeLabel()}. Keep this page open while en route.`);
+        if (generation === watchGeneration) setGpsMessage("Location sharing is on", `Sent ${timeLabel()} · Keep page open`);
       } catch (error) {
         if (generation === watchGeneration && isDriving()) {
           gpsQueue = gpsQueue || sample;
@@ -600,7 +566,7 @@
       const timestamp = useLocal ? localPosition.timestamp : serverTimestamp;
       if (!coordinatesValid(targetLat, targetLon)) {
         $("distance-value").textContent = "—";
-        $("distance-note").textContent = "Waiting for destination coordinates from dispatch.";
+        $("distance-note").textContent = "Destination not set.";
       } else if (!coordinatesValid(lat, lon)) {
         $("distance-value").textContent = "—";
         $("distance-note").textContent = "Waiting for your location · straight-line distance";
@@ -623,20 +589,16 @@
       $("gps-panel").hidden = !isDriving();
       $("distance-panel").hidden = !isDriving();
       $("status-badge").dataset.tone = assigned ? "warm" : "calm";
-      $("badge-label").textContent = assigned ? "New assignment" : isDriving() ? "On a mission" : completed ? "Completed" : "Standby";
-      $("rest-kicker").textContent = completed ? "MISSION COMPLETE" : "TAKE A BREATHER";
-      $("rest-title").textContent = completed ? "A job well done" : "You're off duty";
-      $("rest-description").textContent = completed ? "Trip completed. Location sharing is off. Dispatch will send your next assignment here." : "Your next assignment will appear here. We'll keep you in sync with dispatch.";
+      $("badge-label").textContent = assigned ? "New assignment" : isDriving() ? "En route" : completed ? "Completed" : "Standby";
+      $("rest-title").textContent = completed ? "Completed" : "Off duty";
       $("mission-heading").dataset.tone = assigned ? "warm" : "calm";
       $("mission-action").dataset.tone = assigned ? "warm" : "calm";
-      $("mission-kicker").textContent = assigned ? "Dispatch alert" : hospital ? "Leg 02 / Patient on board" : "Leg 01 / Responding";
-      $("mission-title").textContent = assigned ? "New emergency assigned" : hospital ? "En route to hospital" : "En route to pickup";
-      $("mission-description").textContent = assigned ? "Your route is ready. Start when you're ready to leave." : hospital ? "Bring your patient to the hospital. Mark the trip complete when you arrive." : "Head to the pickup point. Confirm below once your patient is on board.";
+      $("mission-title").textContent = assigned ? "Emergency assigned" : hospital ? "En route to hospital" : "En route to pickup";
       const a = driver?.assignment;
       const format = (lat, lon) => coordinatesValid(lat, lon) ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : "Not provided by dispatch";
       $("pickup-coordinates").textContent = format(a?.pickup_lat, a?.pickup_lon);
       $("hospital-coordinates").textContent = format(a?.hospital_lat, a?.hospital_lon);
-      $("action-label").textContent = statusBusy ? "Updating dispatch…" : assigned ? "Start driving to pickup" : hospital ? "Mark completed" : "Picked up patient · To hospital";
+      $("action-label").textContent = statusBusy ? "Updating dispatch…" : assigned ? "Start to pickup" : hospital ? "Mark completed" : "Patient picked up → Hospital";
       $("mission-action").disabled = statusBusy;
       updateDistance();
     }
@@ -664,7 +626,7 @@
         if (version !== statusVersion || statusBusy || !pageActive) return;
         if (error.status === 404) {
           applyDriver(null);
-          message("sync-note", "Waiting for HQ to register this driver with a first assignment.");
+          message("sync-note", "Waiting for assignment.");
         } else {
           message("sync-note", `Status sync paused. ${error.message} Checking again every 3 seconds.`);
         }

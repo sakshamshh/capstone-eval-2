@@ -101,9 +101,6 @@
     .message[data-tone="success"] { color: var(--mint); }
     .sync-note { color: var(--amber); margin-bottom: 16px; }
     footer { margin-top: 30px; }
-    .utility-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-    .utility-heading .eyebrow { font-size: 10px; }
-    .utility-hint { margin: 11px 6px 0; font-size: 12px; line-height: 1.6; text-align: center; color: var(--muted); }
     .footer-note { display: flex; justify-content: center; gap: 7px; margin: 26px 0 0; font-size: 10px; color: #8ea4a4; letter-spacing: 1.2px; text-transform: uppercase; }
     .map-panel { margin-top: 18px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #142126; }
     .map-panel h2 { font-size: 14px; margin: 0 0 9px; }
@@ -209,10 +206,6 @@
     </main>
 
     <footer>
-      <div class="utility-heading"><svg aria-hidden="true" width="16" height="20" viewBox="0 0 16 20" fill="none" stroke="currentColor"><rect x="4" y="1" width="8" height="15" rx="3"/><circle cx="8" cy="5" r="1" fill="currentColor"/><circle cx="8" cy="9" r="1"/><circle cx="8" cy="13" r="1"/><path d="M8 16v4"/></svg><p class="eyebrow">Traffic light setup</p></div>
-      <button class="button secondary" id="place-light" type="button">Set traffic light to my location</button>
-      <p class="utility-hint">Stand next to the physical light, then tap to place it.</p>
-      <p class="message" id="placement-message" role="status" aria-live="polite" hidden></p>
       <p class="footer-note">One ambulance <span aria-hidden="true">·</span> A clearer way through</p>
     </footer>
   </div>
@@ -240,8 +233,6 @@
     let gpsTimer = null;
     let gpsBusy = false;
     let lastGpsSentAt = -Infinity;
-    let placementBusy = false;
-    let confirmationTimer = null;
     let pageActive = true;
     let liveMap = null;
     let mapLight = null;
@@ -702,48 +693,13 @@
       }
     }
 
-    function getCurrentPosition() {
-      return new Promise((resolve, reject) => {
-        const unavailable = geoUnavailableReason();
-        if (unavailable) { reject(new Error(unavailable)); return; }
-        // Explicit one-time reading; never starts a GPS watch for placement.
-        navigator.geolocation.getCurrentPosition(resolve, reject, GEO_OPTIONS);
-      });
-    }
-
-    async function placeTrafficLight() {
-      if (placementBusy) return;
-      placementBusy = true;
-      $("place-light").disabled = true;
-      $("place-light").textContent = "Finding your location…";
-      clearTimeout(confirmationTimer);
-      message("placement-message", "");
-      try {
-        const position = await getCurrentPosition();
-        const { latitude: lat, longitude: lon } = position.coords;
-        if (!coordinatesValid(lat, lon)) throw new Error("Your device returned an invalid location. Please try again.");
-        $("place-light").textContent = "Placing traffic light…";
-        await api("/traffic-light/location", { lat, lon });
-        message("placement-message", "Traffic light placed here", "success");
-        confirmationTimer = setTimeout(() => message("placement-message", ""), 5000);
-      } catch (error) {
-        message("placement-message", `${geoErrorText(error)} Tap the placement button to retry.`);
-      } finally {
-        placementBusy = false;
-        $("place-light").disabled = Boolean(geoUnavailableReason());
-        $("place-light").textContent = "Set traffic light to my location";
-      }
-    }
-
     $("driver-label").textContent = DRIVER_ID;
     $("mission-action").addEventListener("click", changeStatus);
-    $("place-light").addEventListener("click", placeTrafficLight);
     $("retry-gps").addEventListener("click", () => startGps(true));
     $("fit-live-map").addEventListener("click", () => liveMap?.fit());
     $("show-my-location").addEventListener("click", showMyLocation);
     const unavailable = geoUnavailableReason();
     message("geo-unavailable", unavailable);
-    $("place-light").disabled = Boolean(unavailable);
     renderDriver();
     void initializeMaps();
     void pollMapLight();

@@ -69,9 +69,6 @@
     dt { font-size: 10px; font-weight: 650; letter-spacing: 1.1px; text-transform: uppercase; color: #acc2c1; margin-bottom: 8px; }
     dd { margin: 0; font-size: 13px; line-height: 1.6; }
     .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-    .light-setup { padding: 18px 24px; border-top: 1px solid #355056; background: #19353a; }
-    .setup-row { display: flex; gap: 15px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
-    .setup-hint { color: #b5cbca; font-size: 12px; margin: 0; line-height: 1.6; }
     .button { display: inline-flex; gap: 9px; align-items: center; justify-content: center; min-height: 43px; padding: 11px 14px; border: 1px solid #cedbd6; border-radius: 8px; font-size: 12px; font-weight: 650; line-height: 1.4; background: #fff; color: #25423b; }
     .button-light { background: #26474a; border-color: #5b797b; color: #f0faf5; }
     .primary { min-height: 48px; width: 100%; color: #fff; background: #17674f; border-color: #17674f; font-size: 14px; }
@@ -90,7 +87,6 @@
     .stop-title { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 700; margin: 0 0 17px; }
     .step { width: 22px; height: 22px; display: inline-grid; place-items: center; background: #e8f1ed; color: #29624c; border-radius: 6px; font-family: var(--mono); font-size: 10px; }
     .field-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .location-shortcut { width: 100%; margin-top: 12px; color: #17674f; background: #f4f8f5; }
     .submit-section { margin-top: 26px; }
     .submit-note { text-align: center; font-size: 11px; color: var(--muted); margin: 10px 0 0; line-height: 1.6; }
     .drivers-panel { grid-area: drivers; }
@@ -185,7 +181,6 @@
           <dl class="light-details"><div><dt>Registered location</dt><dd class="mono" id="light-location">Waiting for server…</dd></div><div><dt>State changed at</dt><dd class="mono" id="light-changed">—</dd></div></dl>
           <p class="feedback" id="light-error" role="status" hidden></p>
         </div>
-        <div class="light-setup"><div class="setup-row"><p class="setup-hint">Setting up the demo?<br>Stand next to the physical light.</p><button class="button button-light" id="place-light" type="button">Set traffic light to my location</button></div><p class="feedback" id="placement-feedback" role="status" hidden></p><p class="feedback" id="light-geo-note" hidden></p></div>
       </section>
 
       <section class="panel assign-panel" aria-labelledby="assign-title">
@@ -212,8 +207,6 @@
               <div class="map-tools"><button class="button" id="show-my-location" type="button">Show my location / retry</button><button class="button" id="fit-live-map" type="button">Show all pins</button></div>
               <p class="stop-coordinate" id="pickup-coordinates" aria-live="polite">Pickup: not selected</p>
               <p class="stop-coordinate" id="hospital-coordinates" aria-live="polite">Hospital: not selected</p>
-              <button class="button location-shortcut" id="use-pickup" type="button">Use my location for pickup</button>
-              <p class="feedback" id="pickup-feedback" role="status" hidden></p><p class="feedback" id="pickup-geo-note" hidden></p>
             </div>
           </fieldset>
           <div class="submit-section"><button class="button primary" id="send-assignment" type="submit">Send emergency assignment <span aria-hidden="true">→</span></button><p class="submit-note">Creates or replaces this driver's current assignment.</p><p class="feedback" id="assignment-feedback" role="status" hidden></p></div>
@@ -243,12 +236,10 @@
     let driversBusy = false;
     let lightBusy = false;
     let assignmentBusy = false;
-    let pickupBusy = false;
     let placementBusy = false;
     let driversVersion = 0;
     let lightVersion = 0;
     let lastLight = null;
-    let placementTimer = null;
     let pageActive = true;
     let assignmentMap = null;
     let myPosition = null;
@@ -353,13 +344,12 @@
     }
 
     async function placeTrafficLightOnMap(location) {
-      // Share the GPS placement lock so the two methods cannot race each other.
+      // Serialize map placements so repeated clicks cannot race each other.
       if (placementBusy) {
         feedback("map-placement-feedback", "A traffic light placement is already in progress. Please wait.", "info");
         return;
       }
       placementBusy = true;
-      $("place-light").disabled = true;
       clearTimeout(mapPlacementTimer);
       feedback("map-placement-feedback", "Placing traffic light…", "info");
       try {
@@ -374,7 +364,6 @@
         feedback("map-placement-feedback", `Placement wasn't confirmed. ${error.message} The last confirmed marker is retained. Click the map to retry.`);
       } finally {
         placementBusy = false;
-        $("place-light").disabled = Boolean(geoUnavailable());
       }
     }
 
@@ -418,7 +407,7 @@
         await loadMapLibrary();
         assignmentMap = createDemoMap("assignment-map", "assignment-map-note");
         assignmentMap?.safe(() => assignmentMap.map.on("click", event => {
-          if (assignmentBusy || pickupBusy) return;
+          if (assignmentBusy) return;
           if (!assignmentMap.ready) {
             feedback("assignment-map-note", "Map unavailable or still loading. Wait for the map tiles before choosing a stop.");
             return;
@@ -430,7 +419,6 @@
             return;
           }
           selectStop(selectedStop, { lat: point.lat, lon: point.lng });
-          feedback("pickup-feedback", "");
         }));
         if (pickupLocation) selectStop("pickup", pickupLocation);
         if (hospitalLocation) selectStop("hospital", hospitalLocation);
@@ -589,18 +577,6 @@
       return error.message || "Couldn't get your location. Please try again.";
     }
 
-    function currentLocation() {
-      return new Promise((resolve, reject) => {
-        const unavailable = geoUnavailable();
-        if (unavailable) { reject(new Error(unavailable)); return; }
-        navigator.geolocation.getCurrentPosition((position) => {
-          const { latitude: lat, longitude: lon } = position.coords;
-          if (!validCoordinates(lat, lon)) { reject(new Error("The device returned invalid coordinates. Please try again.")); return; }
-          resolve({ lat, lon });
-        }, reject, GEO_OPTIONS);
-      });
-    }
-
     function stopMyLocation() {
       myWatchGeneration++;
       if (myWatchId !== null) navigator.geolocation.clearWatch(myWatchId);
@@ -636,33 +612,16 @@
 
     function updateFormButtons() {
       $("assignment-fields").disabled = assignmentBusy;
-      $("set-pickup").disabled = assignmentBusy || pickupBusy || !assignmentMap;
-      $("set-hospital").disabled = assignmentBusy || pickupBusy || !assignmentMap;
-      $("set-traffic-light").disabled = assignmentBusy || pickupBusy || !assignmentMap;
-      $("send-assignment").disabled = assignmentBusy || pickupBusy;
-      $("use-pickup").disabled = assignmentBusy || pickupBusy || Boolean(geoUnavailable());
+      $("set-pickup").disabled = assignmentBusy || !assignmentMap;
+      $("set-hospital").disabled = assignmentBusy || !assignmentMap;
+      $("set-traffic-light").disabled = assignmentBusy || !assignmentMap;
+      $("send-assignment").disabled = assignmentBusy;
       $("send-assignment").textContent = assignmentBusy ? "Sending assignment…" : "Send emergency assignment →";
-      $("use-pickup").textContent = pickupBusy ? "Finding your location…" : "Use my location for pickup";
-    }
-
-    async function useCurrentPickup() {
-      if (pickupBusy || assignmentBusy) return;
-      pickupBusy = true;
-      updateFormButtons();
-      feedback("pickup-feedback", "");
-      try {
-        const location = await currentLocation();
-        selectStop("pickup", location);
-        assignmentMap?.safe(() => assignmentMap.map.setView([location.lat, location.lon], 16));
-        feedback("assignment-feedback", "");
-        feedback("pickup-feedback", "Pickup filled with your current location.", "success");
-      } catch (error) { feedback("pickup-feedback", geoError(error)); }
-      finally { pickupBusy = false; updateFormButtons(); }
     }
 
     async function assignEmergency(event) {
       event.preventDefault();
-      if (assignmentBusy || pickupBusy || !$("assignment-form").reportValidity()) return;
+      if (assignmentBusy || !$("assignment-form").reportValidity()) return;
       // Selected map coordinates retain their full precision in the API payload.
       const body = {
         driver_id: $("driver-id").value,
@@ -686,33 +645,7 @@
       } finally { assignmentBusy = false; updateFormButtons(); }
     }
 
-    async function placeTrafficLight() {
-      if (placementBusy) return;
-      placementBusy = true;
-      $("place-light").disabled = true;
-      $("place-light").textContent = "Finding your location…";
-      clearTimeout(placementTimer);
-      feedback("placement-feedback", "");
-      try {
-        const location = await currentLocation();
-        $("place-light").textContent = "Placing traffic light…";
-        const light = await api("/traffic-light/location", location);
-        lightVersion++; // An older in-flight poll must not undo placement on screen.
-        renderLight(light);
-        feedback("light-error", "");
-        feedback("placement-feedback", "Traffic light placed here", "success");
-        placementTimer = setTimeout(() => feedback("placement-feedback", ""), 5000);
-      } catch (error) { feedback("placement-feedback", geoError(error)); }
-      finally {
-        placementBusy = false;
-        $("place-light").disabled = Boolean(geoUnavailable());
-        $("place-light").textContent = "Set traffic light to my location";
-      }
-    }
-
     $("assignment-form").addEventListener("submit", assignEmergency);
-    $("use-pickup").addEventListener("click", useCurrentPickup);
-    $("place-light").addEventListener("click", placeTrafficLight);
     // Editing a location or assignment makes its previous success message obsolete.
     $("assignment-form").addEventListener("input", () => feedback("assignment-feedback", ""));
     $("set-pickup").addEventListener("click", () => setStopMode("pickup"));
@@ -721,10 +654,6 @@
     $("driver-id").addEventListener("input", () => updateLiveMap());
     $("fit-live-map").addEventListener("click", () => assignmentMap?.fit());
     $("show-my-location").addEventListener("click", () => startMyLocation(true));
-    const unavailable = geoUnavailable();
-    feedback("pickup-geo-note", unavailable);
-    feedback("light-geo-note", unavailable);
-    $("place-light").disabled = Boolean(unavailable);
     updateFormButtons();
     void initializeMaps();
     startMyLocation();

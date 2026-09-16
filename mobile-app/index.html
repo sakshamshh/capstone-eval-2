@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0c1519">
-  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#f2edff">
+  <meta name="color-scheme" content="light">
   <meta name="description" content="Ambulance driver dispatch and location sharing.">
   <title>Ambulance</title>
   <!--
@@ -112,6 +112,58 @@
       .button { padding-left: 12px; padding-right: 12px; font-size: 15px; }
     }
     @media (prefers-reduced-motion: reduce) { button:not(:disabled):active { transform: none; } }
+
+    /* Presentation layout, with phone-sized controls retained. */
+    :root { color: #241538; background: #f2edff; --muted: #514265; --line: #a899c4; --mint: #166534; --amber: #854d0e; --red: #991b1b; }
+    body { font-size: 20px; line-height: 1.5; }
+    .app { max-width: 1200px; padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom)); }
+    .connection { padding: 16px; font-size: 18px; border: 2px solid var(--line); border-radius: 12px; background: #fff; flex-wrap: wrap; }
+    main { padding-top: 20px; }
+    .driver-row { margin-bottom: 20px; flex-wrap: wrap; }
+    .driver-id { font-size: 23px; color: #241538; }
+    .badge { font-size: 17px; letter-spacing: .3px; padding: 8px 12px; background: #fff; border: 2px solid var(--line); border-radius: 10px; }
+    .card, .gps-panel, .map-panel { background: #fff; border: 2px solid var(--line); border-radius: 16px; }
+    .rest, .mission-heading, .mission-body { padding: 24px; }
+    .rest h1, .mission-heading h1 { font-size: clamp(28px, 3vw, 40px); letter-spacing: -.4px; }
+    .mission-heading { background: #e9dfff; border-color: var(--line); }
+    .mission-heading[data-tone="warm"] { color: #713f12; background: #fef3c7; border-color: #92610b; }
+    .eyebrow, .stop-label { font-size: 18px; letter-spacing: .3px; }
+    .distance-value { font-size: 52px; color: #452468; }
+    .distance-note, .map-note, .map-legend { font-size: 18px; }
+    .route { margin-bottom: 22px; }
+    .route li { padding-left: 30px; }
+    .route li:first-child { padding-bottom: 22px; }
+    .route li::before { border-color: #6430a5; }
+    .route li:last-child::before { background: #6430a5; }
+    .route li:first-child::after { background: #a899c4; }
+    .coordinates { font-size: 23px; }
+    .button, .map-panel .button, .gps-panel .button { min-height: 68px; padding: 17px 20px; font-size: 22px; border-width: 2px; }
+    .primary { color: #fff; background: #6430a5; border-color: #6430a5; }
+    .primary[data-tone="warm"] { color: #fff; background: #854d0e; border-color: #854d0e; }
+    .secondary { color: #452468; background: #efe5ff; border-color: #80659f; }
+    .gps-panel { padding: 22px; }
+    .gps-heading { font-size: 21px; }
+    .gps-panel p, .message { font-size: 18px; }
+    .map-panel { margin-top: 22px; padding: 22px; }
+    .map-panel h2 { font-size: 28px; }
+    .light-proximity { padding: 22px; background: #eee4ff; border: 2px solid #9a7fbc; border-radius: 12px; }
+    .light-proximity h3 { font-size: 21px; color: #452468; }
+    .light-proximity p { font-size: clamp(26px, 3vw, 36px); color: #241538; }
+    .map-canvas { height: clamp(420px, 62svh, 850px); background: #e9e2f4; border: 2px solid #80659f; }
+    .map-canvas .leaflet-control-attribution { font-size: 12px; }
+    .map-canvas .leaflet-tooltip { font-size: 16px; }
+    button:focus-visible { outline: 4px solid #6430a5; }
+    noscript p { color: #713f12; background: #fef3c7; }
+    @media (max-width: 600px) {
+      .app { padding-left: 12px; padding-right: 12px; }
+      .rest, .mission-heading, .mission-body, .gps-panel, .map-panel { padding: 16px; }
+      .button, .map-panel .button, .gps-panel .button { font-size: 19px; min-height: 64px; }
+      .driver-id { font-size: 21px; }
+      .coordinates { font-size: 20px; }
+      .connection, .distance-note, .map-note, .map-legend { font-size: 16px; }
+      .light-proximity { padding: 16px; }
+      .map-canvas { height: max(400px, 60svh); }
+    }
   </style>
 </head>
 <body>
